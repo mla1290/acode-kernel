@@ -1,5 +1,6 @@
 /* adv00.c: A-code kernel - copyleft Mike Arnautov 1990-2003.
  *
+ * 26 May 03   MLA        Parser re-write: THEN is now equivalent to semicolon.
  * 10 May 03   MLA        BUG: Fixed "drop treasure and <something>".
  * 30 Apr 03   MLA        Bug: Strip off '\r' from MS line terminator.
  * 08 Apr 03   MLA        bug: Initialise to zero values beyond end of
@@ -388,6 +389,7 @@ int *qstat = &qvals [1];
 int *qarg1 = &qvals [2];
 int *qarg2 = &qvals [3];
 int *qcon = &qvals [4];
+char say_buf[160];
 #define WORDSIZE 20
 char qwords [5 * WORDSIZE];
 char *arg1_word = qwords;
@@ -2510,6 +2512,58 @@ void parse (void)
 void parse ()
 #endif
 {
+#ifndef OLDPARSER
+   char *cptr, *lptr;
+   char sep;
+   
+   cptr = lptr = comline;
+   while (*cptr == ' ' || *cptr == ',' || *cptr == '.' || *cptr == ';')
+      cptr++;
+   while (*cptr)
+   {
+      while (*cptr != ' ' && *cptr != ',' && *cptr != ';' && 
+             *cptr != '.' && *cptr != '\n')
+         *lptr++ = *cptr++;
+      sep = ' ';
+      while (*cptr == ' ' || *cptr == ',' || *cptr == '.' || 
+         *cptr == ';' || *cptr == '\n')
+      {
+         if (*cptr == '.')
+            *cptr = ';';
+         if (sep == ' ' || *cptr == '\n')
+            sep = *cptr;
+         else if ((sep == ' ' || sep == ',') &&
+                  (*cptr == ';' || *cptr == '\n'))
+            sep = *cptr;
+         cptr++;
+      }
+      *lptr++ = sep;
+   }
+   *lptr = '\0';
+#ifdef NEWPARSER
+ printf ("+++ Comline: %s", comline);
+#endif
+   tindex = 0;
+   cptr = comline;
+   while (*cptr)
+   {
+      if (*cptr == '\n')
+         break;
+      tp [tindex] = cptr;
+      while (*cptr != ' ' && *cptr != ',' && *cptr != ';' && *cptr != '\n')
+         cptr++;
+      separator [tindex + 1] = *cptr;
+      *cptr++ = '\0';
+      if (strcmp (tp [tindex], "and") == 0)
+         separator [tindex] = ',';
+      else if (strcmp (tp [tindex], "then") == 0)
+         separator [tindex] = ';';
+      else
+         tindex++;
+   }
+   tp [tindex] = NULL;
+   separator [tindex] = '\n';
+#else
    char *lp = comline;
    char *ew = NULL;
    int tindex = 0;
@@ -2542,6 +2596,19 @@ void parse ()
          }
          lp++;
       }
+      if (tindex > 0)
+      {
+         if (strcmp (tp [tindex - 1], "and") == 0)
+         {
+            tindex--;
+            if (sep == ' ') sep = ',';
+         }
+         else if (strcmp(tp [tindex - 1], "then") == 0)
+         {
+            tindex--;
+            if (sep == ' ' || sep == ',') sep = ';';
+         }
+      }
       if (tindex) 
       {
          if (first && sep == ',') sep = ';';
@@ -2559,9 +2626,32 @@ void parse ()
       }
       sep = 0;
       ew = lp;
-      tindex++;
+      if (strcmp (tp [tindex], "and") == 0)
+      {
+         if (tindex >= 0 && separator [tindex - 1] == ' ')
+            separator [tindex - 1] = ',';
+      }
+      else if (strcmp (tp [tindex], "then") == 0)
+      {
+         if (tindex >= 0 && separator [tindex - 1] == ' ')
+            separator [tindex - 1] = ';';
+      }
+      else
+         tindex++;
    }
    tp [tindex] = NULL;
+#endif
+#if defined(OLDPARSER) || defined(NEWPARSER)
+ {
+  int n = 0;
+  while (1)
+  {
+   printf ("+++ %d: %s (%c)\n", n, tp [n], separator [n]);
+   if (tp [n] == NULL) break;
+   n++;
+  }
+ }
+#endif
    return;      
 }
 
@@ -2770,7 +2860,6 @@ get_arg2:
 #ifdef SAY
       if (value [ARG1] == SAY)
       {
-         char say_buf[160];
          int i = tindex;
          strcpy (say_buf, tp [i]);
          while (tp [i] && (separator[i + 1] == ' ' || separator[i + 1] == ','))
@@ -2781,9 +2870,6 @@ get_arg2:
                separator [i + 1] = ',';
             i++;
          }
-         PRINTF("\nOk - \"")
-         PRINTF(say_buf)
-         PRINTF("\"\n")
       }
 #endif /* SAY */
       *orig = '\0';
@@ -2889,8 +2975,8 @@ got_command:
       }
 #endif /* ALL and EXCEPT */
       if (tp [tindex] && strcmp (tp [tindex], "and") == 0 && 
-         separator [++tindex] == ' ')
-            separator [tindex] = ',';
+         separator [tindex] == ' ')
+            separator [++tindex] = ',';
       else
       {
          while (separator [++tindex] == ' ');
@@ -3612,6 +3698,16 @@ restore_it:
          return (0);
 
       case 27:
+         *var = 1;
+         if (*say_buf)
+         {
+            PRINTF("\nOk - \"")
+            PRINTF(say_buf)
+            PRINTF("\"\n")
+            *say_buf = '\0';
+         }
+         return (0);
+         
       case 28:
          *var = 1;
          return (0);
@@ -3752,7 +3848,7 @@ int initialise ()
    if (dump_name == NULL || *dump_name == '\0')
 #endif
    {
-      PRINTF ("\n[A-code kernel version 11.56; MLA, 10 May 2003]\n");
+      PRINTF ("\n[A-code kernel version 11.57; MLA, 25 May 2003]\n");
    }
    *data_file = '\0';
    if (SEP != '?')
