@@ -1,4 +1,4 @@
-/* adv0.h: A-code kernel - copyleft Mike Arnautov 1990-2004. */
+/* adv0.h: A-code kernel - copyleft Mike Arnautov 1990-2005. */
 
 #ifdef FILE
 #  undef FILE
@@ -42,7 +42,9 @@ extern int jrand (int limit);
 extern void glue_text (void);
 extern void verbatim (int);
 extern int memstore (int);
-extern int test(char *);
+extern int test (char *);
+extern int undo (void);
+extern int redo (void);
 #else
 extern void say ();
 extern int query ();
@@ -78,6 +80,8 @@ extern void glue_text ();
 extern void verbatim ();
 extern int memstore ();
 extern int test();
+extern int undo();
+extern int redo();
 #endif
 extern jmp_buf loop_back;
 extern int *value;

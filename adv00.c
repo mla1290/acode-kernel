@@ -1,7 +1,8 @@
-/* adv00.c: A-code kernel - copyleft Mike Arnautov 1990-2004.
+/* adv00.c: A-code kernel - copyleft Mike Arnautov 1990-2005.
  */
-#define KVERSION "11.78; MLA, 31 Dec 2004"
+#define KVERSION "11.80; MLA, 03 Jan 2005"
 /*
+ * 03 Jan 05   MLA        Added undo history keeping.
  * 31 Dec 04   MLA        Bug: cgi only defined if CONTEXT is defined!
  * 28 Dec 04   MLA        Assembled state arrays into one array.
  * 22 Dec 04   MLA        bug: PRINTF2 has to be braced -- it's compound!
@@ -375,6 +376,9 @@ char *dump_name = NULL;
 #  ifdef DWARVEN
 #     define DWARVISH     '\362'
 #  endif /* DWARVEN */
+#  if STYLE >= 11
+#     define VHOLDER      '\361'
+#  endif
 #endif /* STYLE */
 
 #ifdef GLK
@@ -427,6 +431,13 @@ int *location = (int *)(IMAGE + OFFSET_LOCS);
 short *objbits = (short *)(IMAGE + OFFSET_OBJBIT);
 short *placebits = (short *)(IMAGE + OFFSET_PLACEBIT);
 short *varbits = (short *)(IMAGE + OFFSET_VARBIT);
+#ifdef UNDO
+   char image [sizeof (IMAGE)];
+   unsigned char *diffs = NULL;
+   unsigned char *dptr = NULL;
+   unsigned char *edptr;
+   int diffsz = 0;
+#endif
 char comline [161] = "\n";
 char old_comline [161] = "\n";
 char raw_comline [161];
@@ -1737,12 +1748,16 @@ int qualifier;
          if (tc == SW_BREAK)
             goto next_char;
       }
+#if STYLE >= 11
+      else if (tc == HOLDER || tc == VHOLDER)
+      {
+         if (upcase) upcase = 2;
+         if (value_flag || tc == VHOLDER)
+#else
       else if (tc == HOLDER)
       {
-#if STYLE >= 11
-         if (upcase) upcase = 2;
-#endif
          if (value_flag)
+#endif
          {
             (void) sprintf (auxbuf, "%d", qualifier);
             cp = auxbuf - 1;
@@ -1896,6 +1911,116 @@ int text_char;
    return;
 }
 
+#if defined(UNDO) && defined(DEBUG)
+void show_diffs(void)
+{
+   {
+      if (diffs)
+      {
+         int i = 0;
+         int l = 0;
+         int a;
+         unsigned char *p = diffs;
+         
+         fprintf (stderr, "++++++ edptr %d, dptr %d, diffsz %d\n", 
+            edptr - diffs, dptr - diffs, diffsz);
+         while (p < edptr)
+         {
+            a = *p * 256 + *(p + 1);
+            if (a == 0)
+            {
+               l++;
+               i = 0;
+            }
+            else
+            {
+               i++;
+               fprintf (stderr, "   +++ %d/%d %d: %d -> %d\n",
+                  l, i, a, *(p + 2), *(p + 3));
+            }
+            p += 4;
+         }
+      }
+   }
+}        
+#endif /* UNDO && DEBUG */
+
+#ifdef UNDO
+#ifdef __STDC__
+void save_changes (void)
+#else
+void save_changes ();
+#endif
+{
+   char *iptr;
+   char *optr;
+   int cnt;
+   int some = 0;
+/*
+ * If UNDOSTAT is -1, then this game thread does not
+ * keep a history track at all. If edptr (effective diffs ptr) is not
+ * the same as dptr, do not count the last move as a change -- it was an 
+ * undo or a redo, which (naturally) leave no history track.
+ */
+   if (value [UNDOSTAT] < 0 || value [CONTEXT] != 0 || 
+   value [ARG1] >= BADWORD || value [ARG2] >= BADWORD ||
+      value [ARG1] == UNDO || value [ARG1] == REDO)
+         return;
+   if (dptr > edptr)
+      dptr = edptr;
+   if (diffs == NULL)
+   {
+      if ((diffs = (unsigned char *)malloc(8192)) == NULL)
+      {
+         printf ("GLITCH: Unable to allocate diffs array!\n");
+         return;
+      }
+      else
+      {
+         diffsz = 8192;
+         memset (diffs, '\0', 4);
+         edptr = dptr = diffs + 4;
+      }
+   }
+   else
+   {
+      for (cnt = 0, optr = image, iptr = IMAGE; cnt < sizeof (IMAGE); 
+         cnt++, optr++, iptr++)
+      {
+         if (*optr != *iptr && 
+          ! ((cnt >= ARG1*sizeof(int) && cnt < (ARG1 + 1)*sizeof(int)) ||
+             (cnt >= ARG2*sizeof(int) && cnt < (ARG2 + 1)*sizeof(int)) ||
+             (cnt >= STATUS*sizeof(int) && cnt < (STATUS + 1)*sizeof(int))))
+         {
+            if (dptr - diffs + 8 >= diffsz)
+            {
+               int doffset = dptr - diffs;
+               if ((diffs = (unsigned char *)realloc(diffs, diffsz + 8192)) == NULL)
+               {
+                  printf ("GLITCH: Unable to re-allocate diffs array!\n");
+                  return;
+               }
+               diffsz += 8192;
+               dptr = diffs + doffset;
+            }
+            *dptr++ = cnt / 256;
+            *dptr++ = cnt % 256;
+            *dptr++ = *optr;
+            *dptr++ = *iptr;
+            some = 1;
+         }
+      }
+      if (some)
+      {
+         for (cnt = 0; cnt < 4; cnt++)
+            *dptr++ = '\0';
+         edptr = dptr;
+      }
+   }
+   memcpy (image, IMAGE, sizeof (IMAGE));
+}
+#endif /* UNDO */
+
 #ifdef __STDC__
 void getinput (char *inbuf, int insize)
 #else
@@ -1919,6 +2044,13 @@ int insize;
 #if STYLE >= 11
    upcase = 1;
 #endif /* STYLE >= 11 */
+
+#ifdef UNDO
+   save_changes ();
+#ifdef DEBUG
+   show_diffs();
+#endif /* DEBUG */
+#endif /* UNDO */
 
 #ifdef CONTEXT
    if (cgi == 'x' || cgi == 'z')
@@ -2706,6 +2838,7 @@ void parse ()
 #endif
    return;      
 }
+
 
 #ifdef __STDC__
 void input (int textref)
@@ -3530,6 +3663,19 @@ got_name:
 #endif /* CONTEXT */
          *var = (ferror (game_file)) ? 1 : 0;
          (void) fclose (game_file);
+#ifdef UNDO
+         strcpy (save_name + strlen(save_name) - 3, "hst");
+         if (value [UNDOSTAT] && diffs && dptr > diffs + 4 &&
+            (game_file = fopen (save_name, WMODE)))
+         {
+            int len = dptr - diffs;
+            fwrite (&len, 1, sizeof (int), game_file);
+            fwrite (diffs, 1, dptr - diffs, game_file);
+            CHKSUM(diffs, len);
+            fwrite (&chksum, 1, sizeof (chksum), game_file);
+            fclose (game_file);
+         }
+#endif
          return (*var);
 
 restore_it:
@@ -3695,6 +3841,38 @@ restore_it:
 #ifdef CONTEXT
          if (key == 997) value [CONTEXT] = 2;
 #endif
+
+#ifdef UNDO
+         strcpy (save_name + strlen(save_name) - 3, "hst");
+         if (value [UNDOSTAT] && (game_file = fopen (save_name, RMODE)))
+         {
+            int len;
+            int diflen = len;
+            unsigned char *d;
+            if (diffs)
+               edptr = dptr = diffs + 4;
+            fread (&len, 1, sizeof (int), game_file);
+            if (len > 0)
+            {
+               diflen = 8192 * ((len + 8191) / 8192);
+               d = (unsigned char *)malloc(diflen);
+               (void) fread (d, 1, len, game_file);
+               fread (&chksav, 1, sizeof (chksav), game_file);
+               fclose (game_file);
+               CHKSUM(d, len);
+               if (chksum == chksav)
+               {
+                  if (diffs)
+                     free (diffs);
+                  diffs = d;
+                  diffsz = diflen;
+                  edptr = dptr = diffs + len;
+                  memcpy (image, IMAGE, sizeof(IMAGE));
+               }
+            }
+            
+         }
+#endif /* UNDO */
          *var = 0;
          return (0);
       case 3:          /* Delete saved game */
@@ -3707,6 +3885,8 @@ restore_it:
    printf ("Failed: %s - error code: $d<br />\n", save_name, *var);
    system ("pwd");
  }
+         strcpy (save_name + strlen(save_name) - 3, "hst");
+         (void) unlink (save_name);
          return (0);
       case 4:          /* Adv550 legacy - flush game cache */
       case 5:          /* Adv550 legacy - get prime time flag */
@@ -5123,3 +5303,102 @@ char *type;
    (void) PRINTF2 ("GLITCH! Bad test type: %s\n", type);
    return (0);
 }
+#ifdef UNDO
+#ifdef __STDC__
+int checkdo (void)
+#else
+int checkdo ()
+#endif
+{
+   char *a;
+   int val = 0;
+
+   if (value[STATUS] > 1)
+   {
+      a = arg2_word;
+      while (*a)
+      {
+         if (*a < '0' || *a >'9')
+            return (-1);
+         val = 10 * val + *a++ - '0';
+      }
+   }
+   else if (value [STATUS] == -1)
+      val = 32767;
+   else
+      val = 1;
+   value [UNDOSTAT] = val;
+   return (val);
+}
+
+#ifdef __STDC__
+int  undo (void)
+#else
+int undo ()
+#endif
+{
+   int cnt = checkdo();
+   int k;
+      
+   if (cnt <= 0)
+      return (cnt);
+   if (diffsz == 0 || edptr <= diffs + 4)
+      return (-2);
+   for (k = 0; k < cnt; k++)
+   {
+      if (edptr <= diffs + 4)
+      {
+         cnt = k;
+         break;
+      }
+      edptr -= 4;
+      while (edptr > diffs)
+      {
+         int adr;
+         edptr -= 4;
+         adr = 256 * (*edptr) + *(edptr + 1);
+         if (adr)
+            *(image + adr) = *(IMAGE + adr) = *(edptr + 2);
+         else
+            break;
+      }
+      edptr += 4;
+   }
+   return (cnt);
+}
+
+#ifdef __STDC__
+int redo (void)
+#else
+int redo ()
+#endif
+{
+   int k;
+   int cnt = checkdo ();
+
+   if (cnt <= 0)
+      return (cnt);
+   if (edptr == dptr)
+      return (-2);
+   for (k = 0; k < cnt; k++)
+   {
+      if (edptr > dptr)
+         edptr = dptr;
+      while (1)
+      {
+         int adr = 256 * (*edptr) + *(edptr + 1);
+         if (adr)
+            *(image + adr) = *(IMAGE + adr) = *(edptr + 3);
+         edptr += 4;
+         if (adr == 0)
+            break;
+      }
+      if (edptr == dptr)
+      {
+         cnt = k + 1;
+         break;
+      }
+   }
+   return (cnt);      
+}
+#endif /* UNDO */
