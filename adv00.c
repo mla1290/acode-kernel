@@ -1,5 +1,7 @@
 /* adv00.c: A-code kernel - copyleft Mike Arnautov 1990-2004.
  *
+ * 07 Aug 04   MLA        Bug: Remember game name on initial restore in
+ *                        the cgi mode.
  * 31 Jul 04   MLA        bug: Don't abort compound commands after "except".
  * 09 Apr 04   MLA        bug: Don't print kernel version twice if GLK.
  * 14 Mar 04   MLA        BUG: Or for (internal) "-z" ones. And don't leave
@@ -201,7 +203,7 @@
  *
  */
 
-#define KVERSION "11.72; MLA, 31 Jul 2004"
+#define KVERSION "11.73; MLA, 07 Aug 2004"
 
 #include "adv1.h"
 
@@ -3389,7 +3391,10 @@ try_again:
       case 999:        /* Restore context */
       case 997:        /* Restore from context comline */
          if (key > 2)
+         {
+            strncpy (arg2_word, cgi_name, WORDSIZE - 1);
             (void) make_name (cgi_name, save_name);
+         }
          else
             (void) make_name (file_name, save_name);
 #else
@@ -3695,6 +3700,11 @@ restore_it:
          (void) make_name (arg2_word, save_name);
 #endif         
          *var = unlink (save_name);
+ if (*var)
+ {
+   printf ("Failed: %s - error code: $d<br />\n", save_name, *var);
+   system ("pwd");
+ }
          return (0);
       case 4:          /* Spare */
       case 5:          /* Spare */
@@ -4037,6 +4047,8 @@ int initialise ()
 #endif /* ! GLK */
    {
       PRINTF2 ("\n[A-code kernel version %s]\n", KVERSION);
+      if (cgi)
+         PRINTF1 ("<br />\n");
    }
    *data_file = '\0';
    if (SEP != '?')
@@ -4432,7 +4444,7 @@ char **argv;
    lbuf = (char *)malloc(2 * Maxlen + 1);
    lbp = lbuf;
 #endif
-#ifdef CGI
+#ifdef CONTEXT
    if (cgi) compress = 1;
 #endif
    if (mainseed == 0)
