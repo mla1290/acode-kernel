@@ -1,8 +1,9 @@
 /* adv00.c: A-code kernel - copyleft Mike Arnautov 1990-2005.
  */
-#define KVERSION "11.81; MLA, 08 Jan 2005"
+#define KVERSION "11.82; MLA, 18 Jan 2005"
 /*
- * 08 Jan 05   MLA        Command line and symbol handling of UNDO status.
+ * 18 Jan 05   MLA        Allowed for nested vars and others.
+ * 09 Jan 05   MLA        Command line and symbol handling of UNDO status.
  * 03 Jan 05   MLA        Added undo history keeping.
  * 31 Dec 04   MLA        Bug: cgi only defined if CONTEXT is defined!
  * 28 Dec 04   MLA        Assembled state arrays into one array.
@@ -56,7 +57,7 @@
  *             MLA        Default to SWAP.
  * 08 Mar 03   S. Munro   Bug: Fix several non-ANSI declaration.
  * 04 Mar 03   MLA        Trap bad command-line restores.
- *                        Re-do the handling of VARSION as GAMEID and DBNAME.
+ *                        Re-do the handling of VERSION as GAMEID and DBNAME.
  * 24 Feb 03   MLA        Bug: Fixed create_db sign handling.
  *                        bug: Suppressed unnecessary "More?" prompts.
  * 23 Feb 03   MLA        Bug: Fixed CGI version handling.
@@ -439,7 +440,7 @@ short *varbits = (short *)(IMAGE + OFFSET_VARBIT);
    unsigned char *edptr;
    int diffsz = 0;
 #ifdef NO_UNDO
-   int undo_def = -9;
+   int undo_def = -2;
 #else
    int undo_def = 0;
 #endif /* NO_UNDO */
@@ -1515,24 +1516,61 @@ int terminate;
    fflush (stdout);
 }
 
+#define VOC_FLAG     128
+#define QUIP_FLAG     64
+#if defined(DETAIL) || STYLE >= 11
+#  define DETAIL_FLAG 32
+#endif
+#ifdef FULL
+#  define FULL_FLAG   16
+#else
+#  define FULL_FLAG    0
+#endif
+#define QUAL_FLAG      8
+#define VQUAL_FLAG     4
+#define VAR_FLAG       2
+#define VALUE_FLAG     1
+
 #ifdef NEST_TEXT
 #ifdef __STDC__
-void nested_say (int addr, int key, int type, int qualifier)
+void nested_say (int addr, int key, int qualifier)
 #else
-void nested_say (addr, key, type, qualifier)
+void nested_say (addr, key, qualifier)
 int addr;
 int key;
-int type;
 int qualifier;
 #endif
 {
    int refno;
+   int type;
    
    if (key &= 14)
       key = 8;
+   type = get_char (addr++);
    refno = get_char (addr++) << 8;
    refno |= (get_char (addr) & 255);
-   refno += (type == NEST_TEXT ? FTEXT : FVARIABLE);
+   if (type == 0)
+   {
+      refno += FOBJECT;
+      key = VOC_FLAG;
+   }
+   else if (type == 1)
+   {
+      refno += FPLACE;
+      key = VOC_FLAG;
+   }
+   else if (type == 2)
+      refno += FVERB;
+   else if (type == 3)
+   {
+      refno += FVARIABLE;
+      key = VAR_FLAG | VOC_FLAG;
+      qualifier = 0;
+   }
+   else
+      refno += FTEXT;
+   if (type < 2)
+      qualifier = 0;
    say (key, refno, qualifier);
    ta = addr;
 }
@@ -1555,6 +1593,7 @@ int qualifier;
    int var_qual_flag;
    int quip_flag;
    int brief_flag = 0;
+   int voc_flag;
 #ifdef FULL
    int full_flag;
 #endif /* FULL */
@@ -1575,20 +1614,6 @@ int qualifier;
 
 /* NB: The below flag values are hard-coded in acdc's dominor.c! */
 
-#define QUIP_FLAG   64
-#if defined(DETAIL) || STYLE >= 11
-#  define DETAIL_FLAG 32
-#endif
-#ifdef FULL
-#  define FULL_FLAG   16
-#else
-#  define FULL_FLAG    0
-#endif
-#define QUAL_FLAG      8
-#define VQUAL_FLAG     4
-#define VAR_FLAG       2
-#define VALUE_FLAG     1
-
    if (lptr == NULL) lptr = text_buf;
    locate_demands++;
    quip_flag =     key & QUIP_FLAG;
@@ -1602,7 +1627,7 @@ int qualifier;
    var_qual_flag = key & VQUAL_FLAG;
    var_what_flag = key & VAR_FLAG;
    value_flag =    key & VALUE_FLAG;
-
+   voc_flag =      key & VOC_FLAG;
 #ifdef OBSOLETE
 #ifdef FULL
    if (bitest (STATUS, TERSE))
@@ -1624,8 +1649,22 @@ int qualifier;
          value_flag))
             qualifier = value [qualifier];
 
-   if (what > LPLACE)
+   if (what > LPLACE || voc_flag)
+   {
+      if (voc_flag && (what == ARG1 || what == ARG2))
+      {
+         if (what == ARG1)
+            cp = arg1_word;
+         else if (what == ARG2)
+            cp = arg2_word;
+         else
+            cp = arg3_word;
+         while (*cp != '\0')
+            outchar (*cp++);
+         return;
+      }
       ta = textadr [what];
+   }
    else if (what >= FPLACE)
    {
 #if defined(TERSE) && defined(FULL) && defined(BEENHERE)
@@ -1701,9 +1740,9 @@ int qualifier;
    {
       tl = tc;
 #ifdef NEST_TEXT
-      if (tc == NEST_TEXT || tc == NEST_VAR)
+      if (tc == NEST_TEXT)
       {
-         nested_say (ta + 1, given_key, tc, qualifier);
+         nested_say (ta + 1, given_key, qualifier);
          tc = get_char (++ta);
          continue;
       }
@@ -2049,8 +2088,10 @@ int insize;
 #endif /* STYLE >= 11 */
 
 #ifdef UNDO
-   if (value [UNDOSTAT] >= 0)
+   if (value [UNDO_STAT] >= 0)
       save_changes ();
+   else if (diffs && dptr > diffs)
+      edptr = dptr = diffs;
 #ifdef DEBUG
    show_diffs();
 #endif /* DEBUG */
@@ -3668,9 +3709,9 @@ got_name:
          *var = (ferror (game_file)) ? 1 : 0;
          (void) fclose (game_file);
 #ifdef UNDO
-         if (value [UNDOSTAT] >= 0)
+         if (value [UNDO_STAT] >= 0 && diffs && diffs < dptr)
          {
-            strcpy (save_name + strlen(save_name) - 3, "hst");
+            strcpy (save_name + strlen(save_name) - 3, "adh");
             if (diffs && dptr > diffs + 4 &&
                (game_file = fopen (save_name, WMODE)))
             {
@@ -3850,9 +3891,9 @@ restore_it:
 #endif
 
 #ifdef UNDO
-         if (value [UNDOSTAT] >= 0)
+         if (value [UNDO_STAT] >= 0)
          {
-            strcpy (save_name + strlen(save_name) - 3, "hst");
+            strcpy (save_name + strlen(save_name) - 3, "adh");
             if (game_file = fopen (save_name, RMODE))
             {
                int len;
@@ -3894,7 +3935,7 @@ restore_it:
    printf ("Failed: %s - error code: $d<br />\n", save_name, *var);
    system ("pwd");
  }
-         strcpy (save_name + strlen(save_name) - 3, "hst");
+         strcpy (save_name + strlen(save_name) - 3, "adh");
          (void) unlink (save_name);
          return (0);
       case 4:          /* Adv550 legacy - flush game cache */
@@ -4526,7 +4567,7 @@ char **argv;
             printf ("    -c <cominfile>      replay game from log\n");
             printf ("    -l <logfile>        log the game\n");
 #ifdef UNDO
-            if (undo_def != -9)
+            if (undo_def != -2)
                printf ("    -u {on|off|forbid}  override default UNDO status\n");
 #endif /* UNDO */
             printf ("    -h                  print this usage summary\n");
@@ -4582,7 +4623,7 @@ char **argv;
 
 #ifdef UNDO
             case 'u':
-               if (undo_def == -9)
+               if (undo_def == -2)
                   break;
                if (strcmp (opt, "off") == 0)
                   undo_def = -1;
@@ -4683,8 +4724,21 @@ char **argv;
 #endif /* CONTEXT */
 
 #ifdef UNDO
-   if (undo_def != -9)
-      value [UNDOSTAT] = undo_def;
+   if (undo_def == -2)
+{fprintf (stderr, "+++ Setting undo.none\n");
+      bitmod ('s', UNDO_STAT, UNDO_NONE);
+}
+   else if (undo_def == 1)
+{fprintf (stderr, "+++ Setting undo.info\n");
+      bitmod ('s', UNDO_STAT, UNDO_INFO);
+}
+   else if (undo_def == -1)
+   {
+fprintf (stderr, "+++ Setting undo.off\n");
+fprintf (stderr, "+++ Setting undo.info\n");
+      bitmod ('s', UNDO_STAT, UNDO_INFO);
+      bitmod ('s', UNDO_STAT, UNDO_OFF);
+   }
 #endif /* UNDO */
 
    (void) setjmp (loop_back);
@@ -5345,110 +5399,135 @@ int checkdo ()
    char *a;
    int val = 0;
 
+   bitmod ('c', UNDO_STAT, UNDO_BAD);
+   bitmod ('c', UNDO_STAT, UNDO_TRIM);
+   bitmod ('c', UNDO_STAT, UNDO_INV);
+#ifdef ALL
+   if (value [ARG2] == ALL)
+      val = 32767;
+   else if (value[STATUS] > 1)
+#else
    if (value[STATUS] > 1)
+#endif
    {
       a = arg2_word;
       while (*a)
       {
          if (*a < '0' || *a >'9')
+         {
+            bitmod ('s', UNDO_STAT, UNDO_BAD);
             return (-1);
+         }
          val = 10 * val + *a++ - '0';
       }
    }
-   else if (value [STATUS] == -1)
-      val = 32767;
    else
       val = 1;
-   value [UNDOSTAT] = val;
    return (val);
 }
 
 #ifdef __STDC__
-int  undo (void)
+void  undo (void)
 #else
-int undo ()
+void undo ()
 #endif
 {
    int juggled = 0;
-   int cnt = checkdo();
-   int k;
+   int cnt;
+   int acnt;
       
-   if (cnt <= 0)
-      return (cnt);
+   if ((cnt = checkdo ()) < 0)
+      return;
    if (diffsz == 0 || edptr <= diffs + 4)
-      return (-2);
-   for (k = 0; k < cnt; k++)
+      acnt = 0;
+   else
    {
-      if (edptr <= diffs + 4)
+      for (acnt = 0; acnt < cnt; acnt++)
       {
-         cnt = k;
-         break;
-      }
-      edptr -= 4;
-      while (edptr > diffs)
-      {
-         int adr;
-         edptr -= 4;
-         adr = 256 * (*edptr) + *(edptr + 1);
-         if (adr)
-         {
-            int a = 4 *(adr / 4);
-            if (*(int *)(IMAGE + a) == INHAND)
-               juggled = 1;
-            *(image + adr) = *(IMAGE + adr) = *(edptr + 2);
-            if (*(int *)(IMAGE + a) == INHAND)
-               juggled = 1;
-         }
-         else
+         if (edptr <= diffs + 4)
             break;
+         edptr -= 4;
+         while (edptr > diffs)
+         {
+            int adr;
+            edptr -= 4;
+            adr = 256 * (*edptr) + *(edptr + 1);
+            if (adr)
+            {
+               int a = 4 *(adr / 4);
+               if (*(int *)(IMAGE + a) == INHAND)
+                  juggled = 1;
+               *(image + adr) = *(IMAGE + adr) = *(edptr + 2);
+               if (*(int *)(IMAGE + a) == INHAND)
+                  juggled = 1;
+            }
+            else
+               break;
+         }
+         edptr += 4;
       }
-      edptr += 4;
+      bitmod (juggled ? 's' : 'c', UNDO_STAT, UNDO_INV);
    }
-   bitmod (juggled ? 's' : 'c', UNDOSTAT, 0);
-   return (cnt);
+
+   value [UNDO_STAT] = acnt;
+#ifdef ALL
+   if (value [ARG2] == ALL)
+      cnt = acnt;
+#endif
+   bitmod (cnt > acnt ? 's' : 'c', UNDO_STAT, UNDO_TRIM);
+   return;
 }
 
 #ifdef __STDC__
-int redo (void)
+void redo (void)
 #else
-int redo ()
+void redo ()
 #endif
 {
-   int k;
+   int acnt;
    int juggled = 0;
-   int cnt = checkdo ();
+   int cnt;
+   
+   if ((cnt = checkdo ()) < 0)
+      return;
 
-   if (cnt <= 0)
-      return (cnt);
    if (edptr == dptr)
-      return (-2);
-   for (k = 0; k < cnt; k++)
+      acnt = 0;
+   else
    {
-      if (edptr > dptr)
-         edptr = dptr;
-      while (1)
+      for (acnt = 0; acnt < cnt; acnt++)
       {
-         int adr = 256 * (*edptr) + *(edptr + 1);
-         if (adr)
+         if (edptr > dptr)
+            edptr = dptr;
+         while (1)
          {
-            int a = 4 *(adr / 4);
-            if (*(int *)(IMAGE + a) == INHAND)
-               juggled = 1;
-            *(image + adr) = *(IMAGE + adr) = *(edptr + 3);
-            if (*(int *)(IMAGE + a) == INHAND)
-               juggled = 1;
+            int adr = 256 * (*edptr) + *(edptr + 1);
+            if (adr)
+            {
+               int a = 4 *(adr / 4);
+               if (*(int *)(IMAGE + a) == INHAND)
+                  juggled = 1;
+               *(image + adr) = *(IMAGE + adr) = *(edptr + 3);
+               if (*(int *)(IMAGE + a) == INHAND)
+                  juggled = 1;
+            }
+            edptr += 4;
+            if (adr == 0)
+               break;
          }
-         edptr += 4;
-         if (adr == 0)
+         if (edptr == dptr)
+         {
+            acnt++;
             break;
+         }
       }
-      if (edptr == dptr)
-      {
-         cnt = k + 1;
-         break;
-      }
+      bitmod (juggled ? 's' : 'c', UNDO_STAT, 0);
    }
-   bitmod (juggled ? 's' : 'c', UNDOSTAT, 0);
-   return (cnt);      
+   value [UNDO_STAT] = acnt;
+#ifdef ALL
+   if (value [ARG2] == ALL)
+      cnt = acnt;
+#endif
+   bitmod (cnt > acnt ? 's' : 'c', UNDO_STAT, UNDO_TRIM);
 }
 #endif /* UNDO */

@@ -43,8 +43,8 @@ extern void glue_text (void);
 extern void verbatim (int);
 extern int memstore (int);
 extern int test (char *);
-extern int undo (void);
-extern int redo (void);
+extern void undo (void);
+extern void redo (void);
 #else
 extern void say ();
 extern int query ();
@@ -80,8 +80,8 @@ extern void glue_text ();
 extern void verbatim ();
 extern int memstore ();
 extern int test();
-extern int undo();
-extern int redo();
+extern void undo();
+extern void redo();
 #endif
 extern jmp_buf loop_back;
 extern int *value;
