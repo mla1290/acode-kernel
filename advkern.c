@@ -1,5 +1,10 @@
-/* advkern.c (adventure) - copyleft Mike Arnautov 1990-2002.
+/* advkern.c (adventure) - copyleft Mike Arnautov 1990-2003.
  *
+ * 07 Jan 03   MLA        Sigh... Hacked in adv770-specific desert stuff.
+ * 06 Jan 03   MLA        BUG: Fixed varbits[] handling!
+ * 04 Jan 03   MLA        Bug: fixed the typo reporting code.
+ *                        Also added case 31 of special().
+ * 02 Jan 03   MLA        bug: removed redundant fprintf arg.
  * 30 Dec 02   MLA        bug: Use arg2 resolution on iterated objects.
  *                        Also added vocabulary search suppression.
  * 22 Dec 02   MLA        Suppress 'More?" if replaying from log.
@@ -425,6 +430,7 @@ char *lp;
 #define PRINTF(X)    { char *ptr = X; while (*ptr) outchar(*ptr++); }
 /*                   strncpy(lptr,X,text_buf_len-(lptr-text_buf)); \
                      text_len += strlen(X) */
+#define PRINTF1(X)   printf(X); if (log_file) (void)fprintf(log_file,X);
 #define PRINTF2(X,Y) printf(X,Y); if (log_file) (void)fprintf(log_file,X,Y);
 #define CHKSUM(X,Y)  for (cptr=(char *)X,cnt=1;cnt<=Y;cnt++,cptr++) \
                      {chksum+=(*cptr+cnt)*(((long)(*cptr)+cnt)<<4)+Y; \
@@ -1084,7 +1090,7 @@ int clear;
       need = Margin;
       while (need--)
          putchar (' ');
-      PRINTF2 ("[More?] ", 0);
+      PRINTF1 ("[More?] ");
       fgets (reply, sizeof (reply) - 1, com_file ? com_file : stdin);
       if (log_file)
          fprintf (log_file, "\nREPLY: %s", reply);
@@ -2566,7 +2572,7 @@ get_arg1:
    }
 
 #ifdef AGAIN
-#if STYLE == 11
+#if STYLE >= 11
    if (refno == AGAIN &&
       ! ((separator [tindex] == ' ' || separator [tindex] == ',') && 
          tp[tindex-1][0] == 'r' && tp[tindex-1][1] == '\0'))
@@ -2580,7 +2586,7 @@ get_arg1:
 #else
    if (refno == AGAIN)
    {
-#endif /* STYLE == 11 */
+#endif /* STYLE >= 11 */
       if (fresh_line)
       {
          if (*old_comline == '\n')
@@ -2961,6 +2967,18 @@ int *var;
    struct stat statbuf;
    void adv_hours ();
    void adv_news ();
+
+#if STYLE == 11
+/* Adv770 stuff */
+   static int dune_count = 0;
+   int dune_mask;
+   int dune_countdown;
+   int dune;
+   static int dune_offset;
+   static int dunes [24];
+   static char *dune_dir [] =
+      { "north", "NE", "east", "SE", "south", "SW", "west", "NW" };
+#endif /* STYLE == 11 */
 
    switch (key)
    {
@@ -3479,7 +3497,6 @@ restore_it:
          return (0);
 
       case 27:    /* Report ARG1 typo, if any */
-         *var = 0;
 #if STYLE >= 11         
          if (*orig1)
          {
@@ -3498,11 +3515,12 @@ restore_it:
             *orig1 = '\0';
             *var = 1;
          }
+         else
 #endif
+         *var = 0;
          return (0);
          
       case 28:    /* Report ARG2 typo, if any */
-         *var = 0;
 #if STYLE >= 11
          if (*orig2)
          {
@@ -3521,7 +3539,9 @@ restore_it:
             *orig2 = '\0';
             *var = 1;
          }
+         else
 #endif
+         *var = 0;
          return (0);
          
       case 29:    /* Swap ARG1 and ARG2 */
@@ -3533,9 +3553,9 @@ restore_it:
             value [ARG2] = val;
             for (cnt = 0; cnt < VARSIZE; cnt++)
             {
-               val = varbits [ARG1 + cnt];
-               varbits [ARG1 + cnt] = varbits [ARG2 + cnt];
-               varbits [ARG2 + cnt] = val;
+               val = varbits [ARG1 - FVERB + cnt];
+               varbits [ARG1 - FVERB + cnt] = varbits [ARG2 - FVERB + cnt];
+               varbits [ARG2 - FVERB + cnt] = val;
             }
             strcpy (temp_word, arg1_word);
             strcpy (arg1_word, arg2_word);
@@ -3552,6 +3572,53 @@ restore_it:
             *var = 2;
 #endif
          return (0);
+         
+      case 31:   /* Replace ARG2 with what user actually typed */
+         *var = 0;
+#if STYLE >= 11
+         if (value [STATUS] == 2)
+            strncpy (arg2_word, tp [tindex - 1], WORDSIZE);
+#endif
+         return (0);
+
+#if STYLE == 11
+/* This is for adv770 only! */
+      case 770:
+         dune_offset = *var;
+         return (0);
+
+      case 771:
+         dune_mask = *var;
+         dunes [dune_offset] = dune_mask;
+         return (0);
+         
+      case 772:
+         dune_count = 0;
+         dune_mask = 1;
+         dune = *var;
+         for (cnt = 0; cnt < 8; cnt++, dune_mask <<= 1)
+            if (dunes [dune] & dune_mask) dune_count++;
+         *var = dune_count;
+         return (0);
+        
+      case 773:
+         dune = *var;
+         dune_mask = 1;
+         dune_countdown = dune_count;
+         for (cnt = 0; dune < 8 && dune_countdown; 
+            cnt++, dune_mask <<= 1, dune_countdown--)
+         {
+            if (dunes [dune] & dune_mask)
+            {
+               PRINTF (dune_dir [cnt])
+               if (dune_countdown > 1)
+                  PRINTF (", ")
+               else if (dune_countdown == 1 && dune_count > 1)
+                  PRINTF (" and ")
+            }
+         }
+         return (0);
+#endif /* STYLE == 11 */
          
       default:
          PRINTF2 ("\n \nGLITCH! Bad special code: %d\n", key);
@@ -3589,7 +3656,7 @@ int initialise ()
    if (dump_name == NULL || *dump_name == '\0')
 #endif
    {
-      PRINTF ("\n[A-code kernel version 11.44; MLA, 30 Dec 2002]\n");
+      PRINTF ("\n[A-code kernel version 11.45; MLA, 04 Jan 2003]\n");
    }
    *data_file = '\0';
    if (SEP != '?')
@@ -3674,21 +3741,6 @@ int initialise ()
    }
    tp [0] = NULL;
 
-   for (index = 0; index < sizeof (location) / sizeof (location [0]); index++)
-      location [index] = 0;
-   
-   for (index = 0; index < sizeof (objbits) / sizeof (objbits [0]); index++)
-      objbits [index] = 0;
-   
-   for (index = 0; index < sizeof (placebits) / sizeof (placebits [0]); index++)
-      placebits [index] = 0;
-   
-   for (index = 0; index < sizeof (varbits) / sizeof (varbits [0]); index++)
-      varbits [index] = 0;   
-   
-   for (index = 0; index < sizeof (value) / sizeof (value [0]); index++)
-      value [index] = 0;
-       
    for (index = FOBJECT; index <= LOBJECT; index++)
       bitmod ('s', index, OBJECT);
 
@@ -3991,6 +4043,8 @@ char **argv;
       if (dump_name && *dump_name)
       {
          value [STATUS] = -1;
+         tindex = 1;
+         tp[0] = dump_name;
          strncpy (arg2_word, dump_name, WORDSIZE);
          *(arg2_word + WORDSIZE - 1) = '\0';
 /*         special (996, &value [STATUS]);
@@ -4250,18 +4304,18 @@ short *lb;
    else if (t2 == 'c') { val = v2; bts = 0; }                    /* CONSTANT */
    else if (t2 == 'v') { val = value [v2];                       /* VARIABLE */
                        if (v2 == ARG1 || v2 == ARG2) bts = -1;
-                       else bts = varbits [VARSIZE * v2]; }
+                       else bts = varbits [VARSIZE * (v2 - FVERB)]; }
    else  /* t2 == 'l'*/ { val = lv [v2];                            /* LOCAL */
                        bts = lb [VARSIZE * v2]; }
    if      (t1 == 'V') { value [v1] = val;                       /* VARIABLE */
-                       cur = varbits [VARSIZE * v1]; }
+                       cur = varbits [VARSIZE * (v1 - FVERB)]; }
    else if (t1 == 'L') { lv [v1] = val;                             /* LOCAL */
                        cur = lb [VARSIZE * v1]; }
    else  /* t1 == 'E'*/ value [v1] = val;             /* OBJECT, PLACE, TEXT */
    
    if      (t1 == 'V') {                                         /* VARIABLE */
-      if      (bts == -1 && cur != -1) varbits [VARSIZE * v1] = -1;
-      else if (bts != -1 && cur == -1) varbits [VARSIZE * v1] = 0; }
+      if      (bts == -1 && cur != -1) varbits [VARSIZE * (v1 - FVERB)] = -1;
+      else if (bts != -1 && cur == -1) varbits [VARSIZE * (v1 - FVERB)] = 0; }
    else if (t1 == 'L') {                                            /* LOCAL */
       if      (bts == -1 && cur != -1) lb [VARSIZE * v1] = -1;
       else if (bts != -1 && cur == -1) lb [VARSIZE * v1] = 0; }
@@ -4467,10 +4521,10 @@ short *a5
          "*** GLITCH: local object %d flag %d out of range!\n", a2, a3);
    if (a2 >= FPLACE && a2 <= LPLACE && a3 >= PLACESIZE * 16)
       printf (
-         "*** GLITCH: local %d place flag %d out of range!\n", a2, a3);
+         "*** GLITCH: local place %d flag %d out of range!\n", a2, a3);
    if (a2 >= FVARIABLE && a2 <= LVARIABLE && a3 >= VARSIZE * 16)
       printf (
-         "*** GLITCH: local %d variable %d flag %d out of range!\n", a2, a3);
+         "*** GLITCH: local variable %d flag %d out of range!\n", a2, a3);
 
    if (*(a5 + VARSIZE * a2) == -1)
       bitadr = bitword (*(a4 + a2));
