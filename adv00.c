@@ -1,5 +1,8 @@
 /* adv00.c: A-code kernel - copyleft Mike Arnautov 1990-2004.
  *
+ * 14 Mar 04   MLA        BUG: Or for (internal) "-z" ones. And don't leave
+ *                        debug statements lying around!!!
+ * 28 Feb 04   MLA        BUG: Don't use memstore for CGI -y restires!
  * 16 Feb 04   MLA        G++ didn't like initialisation of fname in memstore().
  *                        Bug: Initialise rseed before calling p1()!
  * 12 Feb 04   MLA        Reused exec 12.
@@ -196,7 +199,7 @@
  *
  */
 
-#define KVERSION "11.68; MLA, 16 Feb 2004"
+#define KVERSION "11.70; MLA, 14 Mar 2004"
 
 #include "adv1.h"
 
@@ -3199,7 +3202,9 @@ int key;
    static char *image_base = NULL;   /* True memory save area */
    static char *image_temp = NULL;   /* Temp save over restore area */
    char *image_ptr;
+#ifdef CONTEXT
    char *fname = (char *)(key < 2 ? ".M.adv" : ".T.adv");
+#endif
    int result = 1;
    int val = sizeof (value) + sizeof (location) +
              sizeof (objbits) + sizeof (placebits) + sizeof (varbits);
@@ -3212,7 +3217,7 @@ int key;
          if ((memory_file = fopen (fname, RMODE)) != NULL)
          {
             fclose (memory_file);
-            result = 1;
+            result = 0;
          }
          return (result);
       }
@@ -3510,9 +3515,14 @@ restore_it:
          chksav = 0;
          val = sizeof (value) + sizeof (location) +
                sizeof (objbits) + sizeof (placebits) + sizeof (varbits);
-         *var = memstore (2);
-         if (*var != 0)
-            return (0);
+#ifdef CONTEXT
+         if (cgi != 'z' && cgi != 'y' && cgi != 'x')
+         {
+            *var = memstore (2);
+            if (*var != 0)
+               return (0);
+         }
+#endif
          if (scratch == NULL)
          {
             scratch = (char *) malloc (val);
@@ -3936,11 +3946,13 @@ int initialise ()
    word_buf = btinit (NULL);
 #endif /* STYLE */
 
+#ifndef GLK
 #ifdef CONTEXT
    if (cgi != 'y')
 #else
    if (dump_name == NULL || *dump_name == '\0')
 #endif
+#endif /* GLK */
    {
       PRINTF2 ("\n[A-code kernel version %s]\n", KVERSION);
    }
@@ -4212,6 +4224,10 @@ char **argv;
    /* Set the current output stream to print to it. */
    glk_set_window (mainwin);
    
+   if (dump_name == NULL || *dump_name == '\0')
+   {
+      PRINTF2 ("\n[A-code kernel version %s]\n", KVERSION);
+   }
 #endif
    strncpy (exec, *argv, sizeof (exec) - 1);
    if (argc > 1)
