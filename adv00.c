@@ -1,5 +1,10 @@
 /* adv00.c: A-code kernel - copyleft Mike Arnautov 1990-2003.
  *
+ * 11 Oct 03   MLA        Allow for TYPO not being declared in style >= 11.
+ * 23 Sep 03   MLA        BUG: don't zap tokens in find_word, if no matching!
+ *                        bug: don't convert _ into blank on input.
+ * 20 Sep 03   MLA        BUG: readline does not append '\n'!!
+ * 18 Sep 03   MLA        Bug: don't call ferror() on a closed file handle!
  * 29 Jun 03   MLA        Eliminated redundant restore mode 966.
  * 27 Jun 03   MLA        BUG: Use separate memory for checking restore!
  * 22 Jun 03   MLA        BUG: Make sure command is lowercased!!!
@@ -180,7 +185,7 @@
  *
  */
 
-#define KVERSION "11.60; MLA, 29 Jun 2003"
+#define KVERSION "11.63; MLA, 11 Oct 2003"
 
 #include "adv1.h"
 
@@ -1957,7 +1962,7 @@ int insize;
    cptr = inbuf;
    while (*cptr)
    {
-      if (strchr ("\"\'_", *cptr))
+      if (strchr ("\"\'", *cptr))
          *cptr = ' ';
       cptr++;
    }
@@ -2167,6 +2172,7 @@ failed:
 }
 
 #if STYLE >= 11
+#ifdef TYPO
 #ifdef __STDC__
 void report_typo (int ovoc, int olen)
 #else
@@ -2195,6 +2201,7 @@ int olen;
    *orig = '\0';
    PRINTF("\n\n");
 }
+#endif
 
 #ifdef __STDC__
 void find_word (int *type, int *refno, int *tadr, int which_arg, int gripe)
@@ -2463,11 +2470,15 @@ int which_arg;
          *refno = AMBIGTYPO;
       else if (old_refno >= 0)
       {
+#ifdef TYPO
          *type = voc_type [old_refno];
          *refno = voc_refno [old_refno];
          *tadr = voc_word [old_refno];
          if (gripe)
             report_typo (ovoc, olen);
+#else
+         *refno = BADWORD;
+#endif
       }
    }
 #endif /* STYLE >= 11 */
@@ -2499,14 +2510,9 @@ done:
       }
 #endif /* DWARVEN */
    }
-   if (*refno >= BADWORD)
+   if (*refno >= BADWORD && amatch != -1)
       tp [tindex + 1] = NULL; /* Discard rest of command */
-/*   {
- *      while (tp [tindex])
- *        tindex++;
- *     tindex--;
- *   }
- */
+
 #if defined(FDIR) && defined(LDIR) 
    else if ((*refno > FDIR && *refno < LDIR) && 
             separator [tindex + 1] == ' ')
@@ -2532,7 +2538,7 @@ void parse ()
       cptr++;
    while (*cptr)
    {
-      while (*cptr != ' ' && *cptr != ',' && *cptr != ';' && 
+      while (*cptr && *cptr != ' ' && *cptr != ',' && *cptr != ';' && 
              *cptr != '.' && *cptr != '\n')
          *lptr++ = *cptr++;
       sep = ' ';
@@ -2548,8 +2554,10 @@ void parse ()
             sep = *cptr;
          cptr++;
       }
-      *lptr++ = sep;
+      if (*cptr)
+         *lptr++ = sep;
    }
+   *lptr++ = '\n';
    *lptr = '\0';
 #ifdef NEWPARSER
  printf ("+++ Comline: %s", comline);
@@ -3327,14 +3335,9 @@ try_again:
                game_file);
          }
 #endif /* CONTEXT */
+         *var = (ferror (game_file)) ? 1 : 0;
          (void) fclose (game_file);
-         if (ferror (game_file))
-         {
-            *var = 1;
-            return (1);
-         }
-         *var = 0;
-         return (0);
+         return (*var);
 
 restore_it:
 #ifdef CONTEXT
