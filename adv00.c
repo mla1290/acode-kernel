@@ -1,7 +1,10 @@
 /* adv00.c: A-code kernel - copyleft Mike Arnautov 1990-2005.
  */
-#define KERNEL_VERSION "11.83, MLA - 20 Feb 2005"
+#define KERNEL_VERSION "11.84, MLA - 26 Mar 2005"
 /*
+ * 26 Mar 05   MLA        BUG: Fixed UNDO/REDO for the CGI mode.
+ * 13 Mar 05   MLA        BUG: Restore computed image length, not real one!
+ * 12 Mar 05   MLA        Bug: time_t is long, not int!
  * 20 Feb 05   MLA        Bug: Don't strip off dots if no matching!
  * 18 Jan 05   MLA        Allowed for nested vars and others.
  * 09 Jan 05   MLA        Command line and symbol handling of UNDO status.
@@ -436,6 +439,7 @@ short *placebits = (short *)(IMAGE + OFFSET_PLACEBIT);
 short *varbits = (short *)(IMAGE + OFFSET_VARBIT);
 #ifdef UNDO
    char image [sizeof (IMAGE)];
+   int inhand [LOCS_SIZE];
    unsigned char *diffs = NULL;
    unsigned char *dptr = NULL;
    unsigned char *edptr;
@@ -449,6 +453,7 @@ short *varbits = (short *)(IMAGE + OFFSET_VARBIT);
 char comline [161] = "\n";
 char old_comline [161] = "\n";
 char raw_comline [161];
+char long_word [161];
 int arg1, arg2;
 int orphan;
 int qvals [5];
@@ -1957,40 +1962,6 @@ int text_char;
    return;
 }
 
-#if defined(UNDO) && defined(DEBUG)
-void show_diffs(void)
-{
-   {
-      if (diffs)
-      {
-         int i = 0;
-         int l = 0;
-         int a;
-         unsigned char *p = diffs;
-         
-         fprintf (stderr, "++++++ edptr %d, dptr %d, diffsz %d\n", 
-            edptr - diffs, dptr - diffs, diffsz);
-         while (p < edptr)
-         {
-            a = *p * 256 + *(p + 1);
-            if (a == 0)
-            {
-               l++;
-               i = 0;
-            }
-            else
-            {
-               i++;
-               fprintf (stderr, "   +++ %d/%d %d: %d -> %d\n",
-                  l, i, a, *(p + 2), *(p + 3));
-            }
-            p += 4;
-         }
-      }
-   }
-}        
-#endif /* UNDO && DEBUG */
-
 #ifdef UNDO
 #ifdef __STDC__
 void save_changes (void)
@@ -2005,7 +1976,7 @@ void save_changes ();
 
    if (value [ARG1] >= BADWORD || value [ARG2] >= BADWORD ||
 #ifdef CONTEXT
-       value [CONTEXT] != 0 ||
+       value [CONTEXT] > 1 ||  cgi == 'y' ||
 #endif
        value [ARG1] == UNDO || value [ARG1] == REDO)
           return;
@@ -2046,11 +2017,14 @@ void save_changes ();
                diffsz += 8192;
                dptr = diffs + doffset;
             }
-            *dptr++ = cnt / 256;
-            *dptr++ = cnt % 256;
-            *dptr++ = *optr;
-            *dptr++ = *iptr;
-            some = 1;
+            if (cnt || cgi == 0)
+            {
+               *dptr++ = cnt / 256;
+               *dptr++ = cnt % 256;
+               *dptr++ = *optr;
+               *dptr++ = *iptr;
+               some = 1;
+            }
          }
       }
       if (some)
@@ -2093,9 +2067,6 @@ int insize;
       save_changes ();
    else if (diffs && dptr > diffs)
       edptr = dptr = diffs;
-#ifdef DEBUG
-   show_diffs();
-#endif /* DEBUG */
 #endif /* UNDO */
 
 #ifdef CONTEXT
@@ -2107,7 +2078,7 @@ int insize;
    }
    if (cgi == 'y')
    {
-      strncpy (inbuf, cgicom, insize);
+      strncpy (inbuf, cgicom, insize - 1);
       cgi = 'z';
    }
    else
@@ -2700,12 +2671,16 @@ done:
    if (which_arg == 1)
       wp = arg1_word;
    else if (which_arg == 2)
-      wp = arg2_word;
+      wp = arg2_word; 
    else
       wp = arg3_word;
    
    if (*refno >= BADWORD)
+   {
       (void) strncpy (wp, tp [tindex], WORDSIZE);
+      if (which_arg <= 2 && strlen (tp [tindex]) > 16)
+         (void) strcpy (long_word, tp[tindex]);
+   }
    else
    {
       (void) advcpy (wp, *tadr);
@@ -2773,9 +2748,12 @@ void parse ()
             sep = *cptr;
          cptr++;
       }
-      *lptr++ = sep;
+      if (*cptr)
+         *lptr++ = sep;
    }
-   *lptr++ = '\n';
+   if (sep != '\n')
+      *lptr++ = '\n';
+   *lptr++ = '\0';
    *lptr = '\0';
 #ifdef NEWPARSER
  printf ("+++ Comline: %s", comline);
@@ -2787,8 +2765,9 @@ void parse ()
       if (*cptr == '\n')
          break;
       tp [tindex] = cptr;
-      while (*cptr != ' ' && *cptr != ',' && *cptr != ';' && *cptr != '\n')
-         cptr++;
+      while (*cptr && *cptr != ' ' && *cptr != ',' && 
+         *cptr != ';' && *cptr != '\n')
+            cptr++;
       separator [tindex + 1] = *cptr;
       *cptr++ = '\0';
       if (strcmp (tp [tindex], AND) == 0)
@@ -3297,7 +3276,7 @@ char *save_name;
 {
    char *cptr;                 /* Discardable pointer to file_name */
 
-   (void) strncpy (save_name, file_name, 32);
+   (void) strcpy (save_name, file_name);
    cptr = save_name;
    while (*cptr)
    {
@@ -3316,7 +3295,9 @@ char *save_name;
 #ifdef MSDOS
    *(save_name + 8) = '\0';
 #else /* !MSDOS */
+#if !defined(unix) && ! defined(__CYGWIN__)
    *(save_name + 16) = '\0';
+#endif
 #endif /* MSDOS */
    if (strcmp (save_name + strlen (save_name) - 4, ".adv") != 0)
       (void) strcat (save_name, ".adv");
@@ -3541,21 +3522,22 @@ int key;
 int *var;
 #endif
 {
-   static char save_name [32];
+   static char save_name [168];
    static char *scratch;
    char *image_ptr;
-   char file_name [20];
+   char file_name [168];
    FILE *game_file;
    int val, val1;
    int lval;
-   char tval [sizeof (time_t)];
+   char tval [12];
+   static int tsiz = sizeof (time_t);
    int chksum;
    int chksav;
    char *cptr;
    int cnt;
    int lobj, lplace, lverb, lvar, ltext;
    static int saved_value;
-   static int game_time;
+   static long game_time;
    void adv_hours ();
    void adv_news ();
 
@@ -3566,7 +3548,13 @@ int *var;
          val = value [ARG2];
 try_again:
          if (val >= 0)
-            (void) strncpy (file_name, arg2_word, 16);
+         {
+            if (*long_word && 
+               strncmp (long_word, arg2_word, 16) == 0)
+                  (void) strcpy (file_name, long_word);
+            else
+               (void) strcpy (file_name, arg2_word);
+         }
          else
 #ifdef CONTEXT
          {
@@ -3683,8 +3671,9 @@ got_name:
          (void) fwrite (&val, sizeof (int), 1, game_file);
          val = LTEXT;
          (void) fwrite (&val, sizeof (int), 1, game_file);
+         *value = -1;
          chksum = 0;
-         CHKSUM(tval, sizeof(tval))
+         CHKSUM(tval, sizeof(time_t))
          CHKSUM(IMAGE, VAL_SIZE)
          CHKSUM(IMAGE + OFFSET_LOCS, LOCS_SIZE)
          CHKSUM(IMAGE + OFFSET_OBJBIT, OBJBIT_SIZE)
@@ -3698,7 +3687,7 @@ got_name:
          }
 #endif /* CONTEXT */
          (void) fwrite (&chksum, sizeof (int), 1, game_file);
-         (void) fwrite (tval, 1, sizeof(tval), game_file);
+         (void) fwrite (tval, 1, sizeof(time_t), game_file);
          (void) fwrite (IMAGE, 1, IMAGE_SIZE, game_file);
 #ifdef CONTEXT
          if (cgi && key == 998)
@@ -3709,15 +3698,17 @@ got_name:
             (void) fwrite (word_buf, sizeof (short), *word_buf - 1, game_file);
             (void) fwrite (old_comline, sizeof (char), sizeof (old_comline),
                game_file);
+            (void) fwrite (long_word, sizeof (char), sizeof (long_word),
+               game_file);
          }
 #endif /* CONTEXT */
          *var = (ferror (game_file)) ? 1 : 0;
          (void) fclose (game_file);
 #ifdef UNDO
-         if (value [UNDO_STAT] >= 0 && diffs && diffs < dptr)
+         if (value [UNDO_STAT] >= 0 && diffs && (diffs < dptr || cgi))
          {
             strcpy (save_name + strlen(save_name) - 3, "adh");
-            if (diffs && dptr > diffs + 4 &&
+            if ((diffs && dptr > diffs + 4 || (cgi && value [CONTEXT] <= 1)) &&
                (game_file = fopen (save_name, WMODE)))
             {
                int len = dptr - diffs;
@@ -3725,10 +3716,12 @@ got_name:
                fwrite (diffs, 1, dptr - diffs, game_file);
                CHKSUM(diffs, len);
                fwrite (&chksum, 1, sizeof (chksum), game_file);
+               len = edptr - diffs;
+               fwrite (&len, 1, sizeof (int), game_file);
                fclose (game_file);
             }
          }
-#endif
+#endif /* UNDO */
          return (*var);
 
 restore_it:
@@ -3808,7 +3801,25 @@ restore_it:
          PRINTF2("CHKSAV %d\n", chksav)
 #endif
          (void) fread (tval, 1, sizeof (tval), game_file);
-         (void) fread (scratch, 1, IMAGE_SIZE, game_file);
+         if (*((int *)(tval + 4)) == -1)
+            tsiz = 4;
+         else if (*((int *)(tval + 8)) == -1)
+            tsiz = 8;
+         else
+            tsiz = sizeof(time_t);
+         fseek (game_file, tsiz - 12L, SEEK_CUR);
+         {
+            int locso = ltext * sizeof (int);
+            int locss = (lobj + 1) * sizeof (int);
+            int objbo = locso + locss;
+            int objbs = OBJSIZE * (lobj - FOBJECT + 1) * sizeof (short);
+            int plabo = objbo + objbs;
+            int plabs = PLACESIZE * (lplace - lobj) * sizeof (short);
+            int varbo = plabo + plabs;
+            int varbs = VARSIZE * (lvar - lplace) * sizeof (short);
+            int imgsiz = varbo + varbs;
+            (void) fread (scratch, 1, imgsiz, game_file);
+         }
 #ifdef CONTEXT
          if (cgi && key == 999)
          {
@@ -3830,6 +3841,12 @@ restore_it:
             if (! ferror (game_file))
             {
                (void) fread (old_comline, sizeof (char), sizeof (old_comline),
+                   game_file);
+            }
+            *long_word = '\0';
+            if (! ferror (game_file))
+            {
+               (void) fread (long_word, sizeof (char), sizeof (long_word),
                    game_file);
             }
             clearerr (game_file);
@@ -3854,7 +3871,7 @@ restore_it:
             int plabs = PLACESIZE * (lplace - lobj) * sizeof (short);
             int varbo = plabo + plabs;
             int varbs = VARSIZE * (lvar - lplace) * sizeof (short);
-            CHKSUM(tval, sizeof(tval))
+            CHKSUM(tval, tsiz);
             CHKSUM(scratch, locso)
             CHKSUM(scratch + locso, locss)
             CHKSUM(scratch + objbo, objbs)
@@ -3875,7 +3892,10 @@ restore_it:
                *var = 2;
                return (0);
             }
-            memcpy (&game_time, tval, sizeof (int));
+            if (tsiz == sizeof(game_time))
+               memcpy (&game_time, tval, tsiz);
+            else 
+               game_time = 1;
             memset (IMAGE, '\0', IMAGE_SIZE);
             memcpy (value, scratch, (lobj + 1) * sizeof (int));
             memcpy (value + FPLACE, scratch + (lobj + 1) * sizeof (int), 
@@ -3913,7 +3933,6 @@ restore_it:
                   d = (unsigned char *)malloc(diflen);
                   (void) fread (d, 1, len, game_file);
                   fread (&chksav, 1, sizeof (chksav), game_file);
-                  fclose (game_file);
                   CHKSUM(d, len);
                   if (chksum == chksav)
                   {
@@ -3921,10 +3940,13 @@ restore_it:
                         free (diffs);
                      diffs = d;
                      diffsz = diflen;
-                     edptr = dptr = diffs + len;
+                     dptr = diffs + len;
                      memcpy (image, IMAGE, sizeof(IMAGE));
+                     fread (&len, 1, sizeof (int), game_file);
+                     edptr = diffs + len;
                   }
                }
+               fclose (game_file);
 	    }            
          }
 #endif /* UNDO */
@@ -4621,7 +4643,7 @@ char **argv;
             case 'c':
                com_name = opt;
                break;
-               
+
             case 'r':
                if (*opt) dump_name = opt;
                break;
@@ -5426,12 +5448,33 @@ int checkdo ()
 }
 
 #ifdef __STDC__
+int inv_check (int mode)
+#else
+int inv_check (mode)
+int mode;
+#endif
+{
+   int i;
+   if (mode == 0)
+   {
+      memcpy (inhand, location, LOCS_SIZE * sizeof(int));
+      return (0);
+   }
+   for (i = 0; i <= LOBJECT; i++)
+   {
+      if ((inhand[i] == INHAND && location[i] != INHAND) ||
+          (inhand[i] != INHAND && location[i] == INHAND))
+             return (1);
+   }
+   return (0);
+}
+
+#ifdef __STDC__
 void  undo (void)
 #else
 void undo ()
 #endif
 {
-   int juggled = 0;
    int cnt;
    int acnt;
       
@@ -5441,6 +5484,7 @@ void undo ()
       acnt = 0;
    else
    {
+      (void) inv_check (0);
       for (acnt = 0; acnt < cnt; acnt++)
       {
          if (edptr <= diffs + 4)
@@ -5452,20 +5496,13 @@ void undo ()
             edptr -= 4;
             adr = 256 * (*edptr) + *(edptr + 1);
             if (adr)
-            {
-               int a = 4 *(adr / 4);
-               if (*(int *)(IMAGE + a) == INHAND)
-                  juggled = 1;
-               *(image + adr) = *(IMAGE + adr) = *(edptr + 2);
-               if (*(int *)(IMAGE + a) == INHAND)
-                  juggled = 1;
-            }
+               *(IMAGE + adr) = *(edptr + 2);
             else
                break;
          }
          edptr += 4;
       }
-      bitmod (juggled ? 's' : 'c', UNDO_STAT, UNDO_INV);
+      bitmod (inv_check (1) ? 's' : 'c', UNDO_STAT, UNDO_INV);
    }
 
    value [UNDO_STAT] = acnt;
@@ -5484,7 +5521,6 @@ void redo ()
 #endif
 {
    int acnt;
-   int juggled = 0;
    int cnt;
    
    if ((cnt = checkdo ()) < 0)
@@ -5494,6 +5530,7 @@ void redo ()
       acnt = 0;
    else
    {
+      (void) inv_check (0);
       for (acnt = 0; acnt < cnt; acnt++)
       {
          if (edptr > dptr)
@@ -5501,17 +5538,10 @@ void redo ()
          while (1)
          {
             int adr = 256 * (*edptr) + *(edptr + 1);
-            if (adr)
-            {
-               int a = 4 *(adr / 4);
-               if (*(int *)(IMAGE + a) == INHAND)
-                  juggled = 1;
-               *(image + adr) = *(IMAGE + adr) = *(edptr + 3);
-               if (*(int *)(IMAGE + a) == INHAND)
-                  juggled = 1;
-            }
             edptr += 4;
-            if (adr == 0)
+            if (adr)
+               *(IMAGE + adr) = *(edptr - 1);
+            else
                break;
          }
          if (edptr == dptr)
@@ -5520,7 +5550,7 @@ void redo ()
             break;
          }
       }
-      bitmod (juggled ? 's' : 'c', UNDO_STAT, 0);
+      bitmod (inv_check (1) ? 's' : 'c', UNDO_STAT, UNDO_INV);
    }
    value [UNDO_STAT] = acnt;
 #ifdef ALL
