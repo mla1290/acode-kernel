@@ -1,5 +1,6 @@
-/* adv00.c: A-code kernel - copyleft Mike Arnautov 1990-2003.
+/* adv00.c: A-code kernel - copyleft Mike Arnautov 1990-2004.
  *
+ * 06 Feb 04   MLA        Flag pseudo-objects on entry.
  * 07 Jan 04   MLA        Split memstore() off special(). Reused exec 28.
  *                        Added exec 33.
  * 06 Jan 04   MLA        Exec 30 reused to strip off trailing LF.
@@ -192,7 +193,7 @@
  *
  */
 
-#define KVERSION "11.65; MLA, 02 Jan 2004"
+#define KVERSION "11.66; MLA, 06 Feb 2004"
 
 #include "adv1.h"
 
@@ -3808,7 +3809,7 @@ restore_it:
          return (0);
 
       case 30:   /* Convert last message output into a fragment */
-         if (*(lptr - 1) == '\n') lptr--;
+         while (*(lptr - 1) == '\n') lptr--;
          return (0);
          
       case 31:   /* Replace ARG2 with what user actually typed */
@@ -4076,6 +4077,14 @@ int initialise ()
          (void) fprintf (log_file, "%s: %lu\n", GAMEID, mainseed);
    }
 
+   for (index = 0; index < sizeof (voc_refno) / sizeof (voc_refno [0]);
+         index++)
+      if (voc_refno [index] < 0)
+      {
+         voc_refno [index] *= -1;
+         bitmod ('s', voc_refno [index], VERB + 1);
+      }
+            
    return (0);
 }
 
@@ -4421,7 +4430,6 @@ char **argv;
       return (255);
 #endif
    }
-
    while (1)
    {
       rseed = mainseed;
@@ -4785,7 +4793,7 @@ int a3;
 {
    short *bitadr;
    
-   if (a2 > LVARIABLE || (a2 < FVARIABLE && a2 > LPLACE)) 
+   if (a2 > LVARIABLE) 
    {
       printf (
          "*** Run-time glitch! Setting flag on a flagless entity %d! ***\n", a2);
@@ -4874,10 +4882,11 @@ int a2;
 #endif
 {
    short *bitadr;
+   int bit = a2;
    
    if (a1 > LVARIABLE)
       return (0);
-   if (a1 < FVARIABLE && a1 > LPLACE)
+   if (a1 < FVARIABLE && a1 > LVERB)
       return (a2 == VERB);
    bitadr = bitword (a1);
    if (bitadr == NULL)
