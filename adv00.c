@@ -1,7 +1,9 @@
 /* adv00.c: A-code kernel - copyleft Mike Arnautov 1990-2004.
  */
-#define KVERSION "11.77; MLA, 22 Dec 2004"
+#define KVERSION "11.78; MLA, 31 Dec 2004"
 /*
+ * 31 Dec 04   MLA        Bug: cgi only defined if CONTEXT is defined!
+ * 28 Dec 04   MLA        Assembled state arrays into one array.
  * 22 Dec 04   MLA        bug: PRINTF2 has to be braced -- it's compound!
  * 05 Dec 04   MLA        Bug: Verbatim glitch.
  * 19 Aug 04   MLA        Replaced special(31) with verbatim().
@@ -409,11 +411,22 @@ char data_file [128];
 #endif /* USEDB */
 char exec [128];
 char virgin;
-int value [LTEXT]; /* Was LVARIABLE */
-int location [LOBJECT + 1];
-short objbits [OBJSIZE * (LOBJECT - FOBJECT + 1)];
-short placebits [PLACESIZE * (LPLACE - FPLACE + 1)];
-short varbits [VARSIZE * (LVARIABLE - FVERB + 1)];
+#define VAL_SIZE (LTEXT * sizeof (int))
+#define OFFSET_LOCS VAL_SIZE
+#define LOCS_SIZE ((LOBJECT + 1) * sizeof (int))
+#define OFFSET_OBJBIT (OFFSET_LOCS + LOCS_SIZE)
+#define OBJBIT_SIZE (OBJSIZE * (LOBJECT - FOBJECT + 1) * sizeof (short))
+#define OFFSET_PLACEBIT (OFFSET_OBJBIT + OBJBIT_SIZE)
+#define PLACEBIT_SIZE (PLACESIZE * (LPLACE - FPLACE + 1) * sizeof (short))
+#define OFFSET_VARBIT (OFFSET_PLACEBIT + PLACEBIT_SIZE)
+#define VARBIT_SIZE (VARSIZE * (LVARIABLE - FVERB + 1) * sizeof (short))
+#define IMAGE_SIZE (OFFSET_VARBIT + VARBIT_SIZE)
+char IMAGE [IMAGE_SIZE];
+int *value = (int *)IMAGE;
+int *location = (int *)(IMAGE + OFFSET_LOCS);
+short *objbits = (short *)(IMAGE + OFFSET_OBJBIT);
+short *placebits = (short *)(IMAGE + OFFSET_PLACEBIT);
+short *varbits = (short *)(IMAGE + OFFSET_VARBIT);
 char comline [161] = "\n";
 char old_comline [161] = "\n";
 char raw_comline [161];
@@ -3214,8 +3227,6 @@ int key;
    char *fname = (char *)(key < 2 ? ".M.adv" : ".T.adv");
 #endif
    int result = 1;
-   int val = sizeof (value) + sizeof (location) +
-             sizeof (objbits) + sizeof (placebits) + sizeof (varbits);
 
    if (key < 0)
    {
@@ -3238,7 +3249,7 @@ int key;
    {
       if (image_ptr == NULL)
       {
-         image_ptr = (char *) malloc (val);
+         image_ptr = (char *) malloc (IMAGE_SIZE);
          if (image_ptr == NULL)
             return (1);
          if (key == 0)
@@ -3246,18 +3257,12 @@ int key;
          else
             image_temp = image_ptr;
       }
-         
-#define STASH(X,Y,Z) memcpy (X,Y,Z); X += Z
-      STASH (image_ptr, value, sizeof (value));
-      STASH (image_ptr, location, sizeof (location));
-      STASH (image_ptr, objbits, sizeof (objbits));
-      STASH (image_ptr, placebits, sizeof (placebits));
-      STASH (image_ptr, varbits, sizeof (varbits));
+      memcpy (image_ptr, IMAGE, IMAGE_SIZE);
 #ifdef CONTEXT
       if (cgi)
       {
          if ((memory_file = fopen (fname, WMODE)) != NULL &&
-            fwrite (image_base, sizeof (char), val, memory_file) == val)
+            fwrite (image_base, 1, IMAGE_SIZE, memory_file) == IMAGE_SIZE)
                result = 0;
          if (memory_file)
             fclose (memory_file);
@@ -3271,9 +3276,9 @@ int key;
 #ifdef CONTEXT
       if (cgi)
       {
-         if ((image_ptr = (char *) malloc (val)) != NULL &&
+         if ((image_ptr = (char *) malloc (IMAGE_SIZE)) != NULL &&
              (memory_file = fopen (fname, RMODE)) != NULL &&
-             (fread (image_ptr, sizeof (char), val, memory_file)) == val)
+             (fread (image_ptr, 1, IMAGE_SIZE, memory_file)) == IMAGE_SIZE)
                 result = 0;
          if (memory_file)
             fclose (memory_file);
@@ -3286,13 +3291,7 @@ int key;
       if (image_ptr  == NULL)
          return (1);
 #endif /* CONTEXT */
-
-#define UNSTASH(X,Y,Z) memcpy (Y,X,Z); X += Z
-      UNSTASH (image_ptr, value, sizeof (value));
-      UNSTASH (image_ptr, location, sizeof (location));
-      UNSTASH (image_ptr, objbits, sizeof (objbits));
-      UNSTASH (image_ptr, placebits, sizeof (placebits));
-      UNSTASH (image_ptr, varbits, sizeof (varbits));
+      memcpy (IMAGE, image_ptr, IMAGE_SIZE);      
       return (0);
    }
 }
@@ -3503,11 +3502,11 @@ got_name:
          (void) fwrite (&val, sizeof (int), 1, game_file);
          chksum = 0;
          CHKSUM(tval, sizeof(tval))
-         CHKSUM(value, sizeof(value))
-         CHKSUM(location, sizeof(location))
-         CHKSUM(objbits, sizeof(objbits))
-         CHKSUM(placebits, sizeof(placebits))
-         CHKSUM(varbits, sizeof(varbits))
+         CHKSUM(IMAGE, VAL_SIZE)
+         CHKSUM(IMAGE + OFFSET_LOCS, LOCS_SIZE)
+         CHKSUM(IMAGE + OFFSET_OBJBIT, OBJBIT_SIZE)
+         CHKSUM(IMAGE + OFFSET_PLACEBIT, PLACEBIT_SIZE)
+         CHKSUM(IMAGE + OFFSET_VARBIT, VARBIT_SIZE)
 #ifdef CONTEXT
          if (cgi && key == 998)
          {
@@ -3517,16 +3516,7 @@ got_name:
 #endif /* CONTEXT */
          (void) fwrite (&chksum, sizeof (int), 1, game_file);
          (void) fwrite (tval, 1, sizeof(tval), game_file);
-         (void) fwrite (value, sizeof (int), 
-            sizeof (value) / sizeof(int), game_file);
-         (void) fwrite (location, sizeof (int), 
-            sizeof (location) / sizeof (int), game_file);
-         (void) fwrite (objbits, sizeof (short), 
-            sizeof (objbits) / sizeof (short), game_file);
-         (void) fwrite (placebits, sizeof (short), 
-            sizeof (placebits) / sizeof (short), game_file);
-         (void) fwrite (varbits, sizeof (short), 
-            sizeof (varbits) / sizeof (short), game_file);
+         (void) fwrite (IMAGE, 1, IMAGE_SIZE, game_file);
 #ifdef CONTEXT
          if (cgi && key == 998)
          {
@@ -3596,8 +3586,6 @@ restore_it:
             return (0);
          }
          chksav = 0;
-         val = sizeof (value) + sizeof (location) +
-               sizeof (objbits) + sizeof (placebits) + sizeof (varbits);
 #ifdef CONTEXT
          if (cgi != 'z' && cgi != 'y' && cgi != 'x')
          {
@@ -3608,7 +3596,7 @@ restore_it:
 #endif
          if (scratch == NULL)
          {
-            scratch = (char *) malloc (val);
+            scratch = (char *) malloc (IMAGE_SIZE);
             if (scratch == NULL)
                return (0);
          }
@@ -3617,16 +3605,11 @@ restore_it:
          puts ("Reading image...");
 #endif
          (void) fread (&chksav, sizeof (int), 1, game_file);
+#ifdef DEBUG
+         PRINTF2("CHKSAV %d\n", chksav)
+#endif
          (void) fread (tval, 1, sizeof (tval), game_file);
-         (void) fread (scratch, sizeof (int), ltext, game_file);
-         (void) fread (location, sizeof (int), 
-            sizeof (location) / sizeof (int), game_file);
-         (void) fread (objbits, sizeof (short), 
-            sizeof (objbits) / sizeof (short), game_file);
-         (void) fread (placebits, sizeof (short), 
-            sizeof (placebits) / sizeof (short), game_file);
-         (void) fread (varbits, sizeof (short), 
-            sizeof (varbits) / sizeof (short), game_file);
+         (void) fread (scratch, 1, IMAGE_SIZE, game_file);
 #ifdef CONTEXT
          if (cgi && key == 999)
          {
@@ -3663,37 +3646,52 @@ restore_it:
 #endif
          (void) fclose (game_file);
          chksum = 0;
-         CHKSUM(tval, sizeof(tval))
-         CHKSUM(scratch, (int)(ltext * sizeof(value[0])))
-         CHKSUM(location, sizeof(location))
-         CHKSUM(objbits, (lobj - FOBJECT + 1) * OBJSIZE * sizeof(objbits[0]))
-         CHKSUM(placebits, (lplace - lobj) * PLACESIZE * sizeof(placebits[0]))
-         CHKSUM(varbits, (lvar - lplace) * VARSIZE * sizeof(varbits[0]))
-         if (val < LTEXT)    /* In case we added some texts since then! */
-            while (val < LTEXT)
-               *(value + (val++)) = 0;
+         {
+            int locso = ltext * sizeof (int);
+            int locss = (lobj + 1) * sizeof (int);
+            int objbo = locso + locss;
+            int objbs = OBJSIZE * (lobj - FOBJECT + 1) * sizeof (short);
+            int plabo = objbo + objbs;
+            int plabs = PLACESIZE * (lplace - lobj) * sizeof (short);
+            int varbo = plabo + plabs;
+            int varbs = VARSIZE * (lvar - lplace) * sizeof (short);
+            CHKSUM(tval, sizeof(tval))
+            CHKSUM(scratch, locso)
+            CHKSUM(scratch + locso, locss)
+            CHKSUM(scratch + objbo, objbs)
+            CHKSUM(scratch + plabo, plabs)
+            CHKSUM(scratch + varbo, varbs)
+            if (val < LTEXT)    /* In case we added some texts since then! */
+               while (val < LTEXT)
+                  *(value + (val++)) = 0;
 #ifdef CONTEXT
-         if (cgi && key == 999)
-         {
-            CHKSUM(qwords, sizeof(qwords));
-            CHKSUM(qvals, sizeof(qvals));
-         }
+            if (cgi && key == 999)
+            {
+               CHKSUM(qwords, sizeof(qwords));
+               CHKSUM(qvals, sizeof(qvals));
+            }
 #endif /* CONTEXT */
-         if (chksav != chksum)
-         {
-            *var = 2;
-            return (0);
-         }
-         memcpy (&game_time, tval, sizeof (int));
-         memcpy (value, scratch, (lobj + 1) * sizeof (int));
-         memcpy (value + FPLACE, (int *)scratch + lobj + 1, 
-            (lplace - lobj) * sizeof (int));
-         memcpy (value + FVERB, (int *)scratch + lplace + 1, 
-            (lverb - lplace) * sizeof (int));
-         memcpy (value + FVARIABLE, (int *)scratch + lverb + 1,
-            (lvar - lverb - 1) * sizeof (int));
-         memcpy (value + FTEXT, (int *)scratch + lvar,
-            (ltext - lvar + 1) * sizeof (int));
+            if (chksav != chksum)
+            {
+               *var = 2;
+               return (0);
+            }
+            memcpy (&game_time, tval, sizeof (int));
+            memset (IMAGE, '\0', IMAGE_SIZE);
+            memcpy (value, scratch, (lobj + 1) * sizeof (int));
+            memcpy (value + FPLACE, scratch + (lobj + 1) * sizeof (int), 
+               (lplace - lobj) * sizeof (int));
+            memcpy (value + FVERB, scratch + (lplace + 1) * sizeof (int), 
+               (lverb - lplace) * sizeof (int));
+            memcpy (value + FVARIABLE, scratch + (lverb + 1) * sizeof (int),
+               (lvar - lverb - 1) * sizeof (int));
+            memcpy (value + FTEXT, scratch + lvar * sizeof (int),
+               (ltext - lvar) * sizeof (int));
+            memcpy (location,  scratch + locso, locss);
+            memcpy (objbits,   scratch + objbo, objbs);
+            memcpy (placebits, scratch + plabo, plabs);
+            memcpy (varbits,   scratch + varbo, varbs);
+	 }
 #ifdef CONTEXT
          if (key == 997) value [CONTEXT] = 2;
 #endif
@@ -4006,8 +4004,10 @@ int initialise ()
 #endif /* ! GLK */
    {
       PRINTF2 ("\n[A-code kernel version %s]\n", KVERSION);
+#ifdef CONTEXT
       if (cgi)
          PRINTF1 ("<br />\n");
+#endif
    }
    *data_file = '\0';
    if (SEP != '?')

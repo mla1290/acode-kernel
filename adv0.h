@@ -80,11 +80,11 @@ extern int memstore ();
 extern int test();
 #endif
 extern jmp_buf loop_back;
-extern int value[];
-extern int location[];
-extern short objbits[];
-extern short placebits[];
-extern short varbits[];
+extern int *value;
+extern int *location;
+extern short *objbits;
+extern short *placebits;
+extern short *varbits;
 extern void (*procs[])();
 #define AND "and"
 #define THEN "then"
