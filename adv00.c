@@ -1,5 +1,6 @@
 /* adv00.c: A-code kernel - copyleft Mike Arnautov 1990-2004.
  *
+ * 09 Apr 04   MLA        bug: Don't print kernel version twice if GLK.
  * 14 Mar 04   MLA        BUG: Or for (internal) "-z" ones. And don't leave
  *                        debug statements lying around!!!
  * 28 Feb 04   MLA        BUG: Don't use memstore for CGI -y restires!
@@ -199,7 +200,7 @@
  *
  */
 
-#define KVERSION "11.70; MLA, 14 Mar 2004"
+#define KVERSION "11.71; MLA, 09 Apr 2004"
 
 #include "adv1.h"
 
@@ -3952,7 +3953,7 @@ int initialise ()
 #else
    if (dump_name == NULL || *dump_name == '\0')
 #endif
-#endif /* GLK */
+#endif /* ! GLK */
    {
       PRINTF2 ("\n[A-code kernel version %s]\n", KVERSION);
    }
@@ -4139,17 +4140,17 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
   /* Call the Windows specific initialization routine */
   if (winglk_startup_code(lpCmdLine) != 0)
   {
-    /* Run the application */
+/* Run the application */
     glk_main();
 
-    /* There is no return from this routine */
+/* There is no return from this routine */
     glk_exit();
   }
 
   return 0;
 }
 #endif
-#if defined(unix) || defined(linux)
+#if defined(unix) || defined(linux) || defined(XGLK)
 #define glkunix_arg_End (0)
 #define glkunix_arg_ValueFollows (1)
 #define glkunix_arg_NoValue (2)
@@ -4192,7 +4193,7 @@ glkunix_argumentlist_t glkunix_arguments[] =
       {"-h", glkunix_arg_NoValue, "-h: print help text"},
       {NULL, glkunix_arg_End, NULL }
    };
-#endif /* unix || linux */
+#endif /* unix || linux || XGLK */
 void glk_main (void)
 #else
 #  ifdef __STDC__
@@ -4224,10 +4225,6 @@ char **argv;
    /* Set the current output stream to print to it. */
    glk_set_window (mainwin);
    
-   if (dump_name == NULL || *dump_name == '\0')
-   {
-      PRINTF2 ("\n[A-code kernel version %s]\n", KVERSION);
-   }
 #endif
    strncpy (exec, *argv, sizeof (exec) - 1);
    if (argc > 1)
