@@ -1,7 +1,8 @@
 /* adv00.c: A-code kernel - copyleft Mike Arnautov 1990-2005.
  */
-#define KVERSION "11.80; MLA, 03 Jan 2005"
+#define KVERSION "11.81; MLA, 08 Jan 2005"
 /*
+ * 08 Jan 05   MLA        Command line and symbol handling of UNDO status.
  * 03 Jan 05   MLA        Added undo history keeping.
  * 31 Dec 04   MLA        Bug: cgi only defined if CONTEXT is defined!
  * 28 Dec 04   MLA        Assembled state arrays into one array.
@@ -437,6 +438,11 @@ short *varbits = (short *)(IMAGE + OFFSET_VARBIT);
    unsigned char *dptr = NULL;
    unsigned char *edptr;
    int diffsz = 0;
+#ifdef NO_UNDO
+   int undo_def = -9;
+#else
+   int undo_def = 0;
+#endif /* NO_UNDO */
 #endif
 char comline [161] = "\n";
 char old_comline [161] = "\n";
@@ -1956,16 +1962,13 @@ void save_changes ();
    char *optr;
    int cnt;
    int some = 0;
-/*
- * If UNDOSTAT is -1, then this game thread does not
- * keep a history track at all. If edptr (effective diffs ptr) is not
- * the same as dptr, do not count the last move as a change -- it was an 
- * undo or a redo, which (naturally) leave no history track.
- */
-   if (value [UNDOSTAT] < 0 || value [CONTEXT] != 0 || 
-   value [ARG1] >= BADWORD || value [ARG2] >= BADWORD ||
-      value [ARG1] == UNDO || value [ARG1] == REDO)
-         return;
+
+   if (value [ARG1] >= BADWORD || value [ARG2] >= BADWORD ||
+#ifdef CONTEXT
+       value [CONTEXT] != 0 ||
+#endif
+       value [ARG1] == UNDO || value [ARG1] == REDO)
+          return;
    if (dptr > edptr)
       dptr = edptr;
    if (diffs == NULL)
@@ -2046,7 +2049,8 @@ int insize;
 #endif /* STYLE >= 11 */
 
 #ifdef UNDO
-   save_changes ();
+   if (value [UNDOSTAT] >= 0)
+      save_changes ();
 #ifdef DEBUG
    show_diffs();
 #endif /* DEBUG */
@@ -3664,16 +3668,19 @@ got_name:
          *var = (ferror (game_file)) ? 1 : 0;
          (void) fclose (game_file);
 #ifdef UNDO
-         strcpy (save_name + strlen(save_name) - 3, "hst");
-         if (value [UNDOSTAT] && diffs && dptr > diffs + 4 &&
-            (game_file = fopen (save_name, WMODE)))
+         if (value [UNDOSTAT] >= 0)
          {
-            int len = dptr - diffs;
-            fwrite (&len, 1, sizeof (int), game_file);
-            fwrite (diffs, 1, dptr - diffs, game_file);
-            CHKSUM(diffs, len);
-            fwrite (&chksum, 1, sizeof (chksum), game_file);
-            fclose (game_file);
+            strcpy (save_name + strlen(save_name) - 3, "hst");
+            if (diffs && dptr > diffs + 4 &&
+               (game_file = fopen (save_name, WMODE)))
+            {
+               int len = dptr - diffs;
+               fwrite (&len, 1, sizeof (int), game_file);
+               fwrite (diffs, 1, dptr - diffs, game_file);
+               CHKSUM(diffs, len);
+               fwrite (&chksum, 1, sizeof (chksum), game_file);
+               fclose (game_file);
+            }
          }
 #endif
          return (*var);
@@ -3843,34 +3850,36 @@ restore_it:
 #endif
 
 #ifdef UNDO
-         strcpy (save_name + strlen(save_name) - 3, "hst");
-         if (value [UNDOSTAT] && (game_file = fopen (save_name, RMODE)))
+         if (value [UNDOSTAT] >= 0)
          {
-            int len;
-            int diflen = len;
-            unsigned char *d;
-            if (diffs)
-               edptr = dptr = diffs + 4;
-            fread (&len, 1, sizeof (int), game_file);
-            if (len > 0)
+            strcpy (save_name + strlen(save_name) - 3, "hst");
+            if (game_file = fopen (save_name, RMODE))
             {
-               diflen = 8192 * ((len + 8191) / 8192);
-               d = (unsigned char *)malloc(diflen);
-               (void) fread (d, 1, len, game_file);
-               fread (&chksav, 1, sizeof (chksav), game_file);
-               fclose (game_file);
-               CHKSUM(d, len);
-               if (chksum == chksav)
+               int len;
+               int diflen = len;
+               unsigned char *d;
+               if (diffs)
+                  edptr = dptr = diffs + 4;
+               fread (&len, 1, sizeof (int), game_file);
+               if (len > 0)
                {
-                  if (diffs)
-                     free (diffs);
-                  diffs = d;
-                  diffsz = diflen;
-                  edptr = dptr = diffs + len;
-                  memcpy (image, IMAGE, sizeof(IMAGE));
+                  diflen = 8192 * ((len + 8191) / 8192);
+                  d = (unsigned char *)malloc(diflen);
+                  (void) fread (d, 1, len, game_file);
+                  fread (&chksav, 1, sizeof (chksav), game_file);
+                  fclose (game_file);
+                  CHKSUM(d, len);
+                  if (chksum == chksav)
+                  {
+                     if (diffs)
+                        free (diffs);
+                     diffs = d;
+                     diffsz = diflen;
+                     edptr = dptr = diffs + len;
+                     memcpy (image, IMAGE, sizeof(IMAGE));
+                  }
                }
-            }
-            
+	    }            
          }
 #endif /* UNDO */
          *var = 0;
@@ -4505,18 +4514,22 @@ char **argv;
          {
             printf ("\nUsage: %s [options]\n\nOptions:\n", prog);
 #ifndef GLK
-            printf ("    -w                invert default wrap/justify setting\n");
-            printf ("    -b                invert default setting for blank lines around prompt\n");
-            printf ("    -s <W>x<H>[-<M>]  set screen size and margin\n");
-            printf ("    -p                invert default setting for pause before exiting\n");
+            printf ("    -w                  invert default wrap/justify setting\n");
+            printf ("    -b                  invert default setting for blank lines around prompt\n");
+            printf ("    -s <W>x<H>[-<M>]    set screen size and margin\n");
+            printf ("    -p                  invert default setting for pause before exiting\n");
 #endif /* GLK */
 #ifdef USEDB
-            printf ("    -d <dbsdir>       specify dbs directory\n");
+            printf ("    -d <dbsdir>         specify dbs directory\n");
 #endif /* USEDB */
-            printf ("   [-r] <dumpfile>    restore game from dump\n");
-            printf ("    -c <cominfile>    replay game from log\n");
-            printf ("    -l <logfile>      log the game\n");
-            printf ("    -h                print this usage summary\n");
+            printf ("   [-r] <dumpfile>      restore game from dump\n");
+            printf ("    -c <cominfile>      replay game from log\n");
+            printf ("    -l <logfile>        log the game\n");
+#ifdef UNDO
+            if (undo_def != -9)
+               printf ("    -u {on|off|forbid}  override default UNDO status\n");
+#endif /* UNDO */
+            printf ("    -h                  print this usage summary\n");
             exit (0);
          }
          if (--argc == 0) break;
@@ -4547,7 +4560,7 @@ char **argv;
                }
                Maxlen = Linlen - 2 * Margin;
                break;
-               
+
 #ifdef USEDB
             case 'd':
                dbs_dir = opt;
@@ -4566,6 +4579,20 @@ char **argv;
             case 'r':
                if (*opt) dump_name = opt;
                break;
+
+#ifdef UNDO
+            case 'u':
+               if (undo_def == -9)
+                  break;
+               if (strcmp (opt, "off") == 0)
+                  undo_def = -1;
+               else if (strcmp (opt, "forbid") == 0)
+                  undo_def = -2;
+               else if (strcmp (opt, "on") == 0)
+                  undo_def = 1;
+               break;
+#endif /* UNDO */
+
 #ifdef CONTEXT
             case 'x':
             case 'y':
@@ -4654,6 +4681,11 @@ char **argv;
          p1 ();
    }
 #endif /* CONTEXT */
+
+#ifdef UNDO
+   if (undo_def != -9)
+      value [UNDOSTAT] = undo_def;
+#endif /* UNDO */
 
    (void) setjmp (loop_back);
 
@@ -5337,6 +5369,7 @@ int  undo (void)
 int undo ()
 #endif
 {
+   int juggled = 0;
    int cnt = checkdo();
    int k;
       
@@ -5358,12 +5391,20 @@ int undo ()
          edptr -= 4;
          adr = 256 * (*edptr) + *(edptr + 1);
          if (adr)
+         {
+            int a = 4 *(adr / 4);
+            if (*(int *)(IMAGE + a) == INHAND)
+               juggled = 1;
             *(image + adr) = *(IMAGE + adr) = *(edptr + 2);
+            if (*(int *)(IMAGE + a) == INHAND)
+               juggled = 1;
+         }
          else
             break;
       }
       edptr += 4;
    }
+   bitmod (juggled ? 's' : 'c', UNDOSTAT, 0);
    return (cnt);
 }
 
@@ -5374,6 +5415,7 @@ int redo ()
 #endif
 {
    int k;
+   int juggled = 0;
    int cnt = checkdo ();
 
    if (cnt <= 0)
@@ -5388,7 +5430,14 @@ int redo ()
       {
          int adr = 256 * (*edptr) + *(edptr + 1);
          if (adr)
+         {
+            int a = 4 *(adr / 4);
+            if (*(int *)(IMAGE + a) == INHAND)
+               juggled = 1;
             *(image + adr) = *(IMAGE + adr) = *(edptr + 3);
+            if (*(int *)(IMAGE + a) == INHAND)
+               juggled = 1;
+         }
          edptr += 4;
          if (adr == 0)
             break;
@@ -5399,6 +5448,7 @@ int redo ()
          break;
       }
    }
+   bitmod (juggled ? 's' : 'c', UNDOSTAT, 0);
    return (cnt);      
 }
 #endif /* UNDO */
