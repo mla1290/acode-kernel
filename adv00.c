@@ -1,5 +1,8 @@
-/* advkern.c: A-code kernel - copyleft Mike Arnautov 1990-2003.
+/* adv00.c: A-code kernel - copyleft Mike Arnautov 1990-2003.
  *
+ * 01 Apr 03   MLA        BUG: fixed restore of incompatible versions.
+ *                        Also, improved version checking.
+ *                        Also changed -l to -log iff GLK.
  * 24 Mar 03   MLA        BUG: no SCHIZOID behaviour for INHAND in isat().
  * 22 Mar 03   MLA        BUG: run p1() when restoring from command line!
  * 20 Mar 03   MLA        Intelligent version checks on restore,
@@ -2992,37 +2995,38 @@ int check_version (infile)
 FILE *infile;
 #endif
 {
-   int valg = 0;
-   int valt = 0;
+   int majvalg = 0;
+   int minvalg = 0;
+   int majvalt = 0;
+   int minvalt = 0;
    char *gptr = GAMEID;
    char tchr = fgetc (infile);
    
    while (1)
    {
       if (*gptr == '\0' && tchr == '\n') return (0);
+      if (! isalnum (tchr) && ! isalnum(*gptr)) break;
       if (tchr != *gptr) return (1);
-      if (tchr == ' ') 
-      {
-         while (*gptr == ' ') gptr++;
-         while (tchr == ' ') tchr = fgetc (infile);
-         break;
-      }
       gptr++;
       tchr = fgetc (infile);
    }
+   while (*gptr && ! isdigit (*gptr)) gptr++;
+   while (tchr != '\n' && ! isdigit (tchr)) tchr = fgetc (infile);
+   if (tchr == '\n' && *gptr == '\0') return (0);
    while (isdigit (*gptr) || *gptr == '.')
    {
-      if (*gptr == '.') valg *= 100;
-      else              valg = 10 * valg + *gptr - '0';
+      if (*gptr == '.') { majvalg = minvalg; minvalg = 0; }
+      else              minvalg = 10 * minvalg + *gptr - '0';
       gptr++;
    }
    while (isdigit (tchr) || tchr == '.')
    {
-      if (tchr == '.') valt *= 100;
-      else              valt = 10 * valt + tchr - '0';
+      if (tchr == '.') { majvalt = minvalt; minvalt = 0; }
+      else              minvalt = 10 * minvalt + tchr - '0';
       tchr = fgetc (infile);
    }
-   if (valg < valt) return (1);
+   if (majvalg != majvalt) return (1);
+   if (minvalg < minvalt) return (1);
    while (tchr != '\n') tchr = fgetc (infile);
    return (0);
 }
@@ -3247,7 +3251,7 @@ restore_it:
 #endif
          if (check_version (game_file) != 0)
          {
-            *var = 2;
+            *var = 4;
             return (0);
          }
          val1 = 0;
@@ -3496,8 +3500,9 @@ restore_it:
          UNSTASH (image_ptr, placebits, sizeof (placebits));
          UNSTASH (image_ptr, varbits, sizeof (varbits));
          *var = 0;
-         longjmp (loop_back, 1);
-         
+/*            longjmp (loop_back, 1); */
+         return (0);
+               
       case 19:    /* Fiddle justification */
          val = *var;
          justify = val < 2 ? val : 1 - justify;
@@ -3732,7 +3737,7 @@ int initialise ()
    if (dump_name == NULL || *dump_name == '\0')
 #endif
    {
-      PRINTF ("\n[A-code kernel version 11.53; MLA, 24 Mar 2003]\n");
+      PRINTF ("\n[A-code kernel version 11.54; MLA, 01 Apr 2003]\n");
    }
    *data_file = '\0';
    if (SEP != '?')
@@ -3827,7 +3832,6 @@ int initialise ()
    
    if (strcmp (title, GAMEID) != 0)
    {
-      printf ("  title '%s',\nversion '%s'\n", title, GAMEID);
       (void) printf ("Version stamp mismatch!\n");
       return (1);
    }
@@ -3956,7 +3960,7 @@ glkunix_argumentlist_t glkunix_arguments[] =
 #endif /* USEDB */
       {"-r", glkunix_arg_ValueFollows, "[-r] <savefile>: restore game"},
       {"-c", glkunix_arg_ValueFollows, "-c <comfile>: replay game from log"},
-      {"-l", glkunix_arg_ValueCanFollow, "-l [<logfile>]: log the game"},
+      {"-log", glkunix_arg_ValueCanFollow, "-log [<logfile>]: log the game"},
       {"-h", glkunix_arg_NoValue, "-h: print help text"},
       {NULL, glkunix_arg_End, NULL }
    };
