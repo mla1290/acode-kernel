@@ -1,5 +1,6 @@
 /* advkern.c (adventure) - copyleft Mike Arnautov 1990-2003.
  *
+ * 16 Feb 03   MLA        bug: several small command handling bugs.
  * 14 Feb 03   MLA        Bug: Fixed '-l -c name' handling in command args.
  * 09 Feb 03   MLA        Use F/LMAGIC and F/LDIR. Also use SAY.
  * 04 Feb 03   MLA        Bug: fix qualifying by ARG2. 
@@ -2447,12 +2448,41 @@ int *tadr;
    }
 #endif /* STYLE >= 11 */
 done:
+#if STYLE >= 11
+      if (which_arg > 1 && (*refno == BADWORD || *refno == AMBIGTYPO) && 
+         btfind (word_buf, tp [tindex]))
+            value [ARG2] = SCENEWORD;
+#endif /* STYLE >= 11 */
+
+   if (which_arg == 1)
+      wp = arg1_word;
+   else if (which_arg == 2)
+      wp = arg2_word;
+   else
+      wp = arg3_word;
+   
    if (*refno >= BADWORD)
+      (void) strncpy (wp, tp [tindex], WORDSIZE);
+   else
    {
-      while (tp [tindex])
-         tindex++;
-      tindex--;
+      (void) advcpy (wp, *tadr);
+#ifdef DWARVEN
+      if (value [DWARVEN] || extra_dwarvish)
+      {
+         char *cp = wp;
+         while (*cp)
+            shift_up (cp++);
+      }
+#endif /* DWARVEN */
    }
+   if (*refno >= BADWORD)
+      tp [tindex] = NULL; /* Discard rest of command */
+/*   {
+ *      while (tp [tindex])
+ *        tindex++;
+ *     tindex--;
+ *   }
+ */
 #if defined(FDIR) && defined(LDIR) 
    else if ((*refno > FDIR && *refno < LDIR) && 
             separator [tindex + 1] == ' ')
@@ -2702,55 +2732,11 @@ get_arg1:
    {
       value [ARG1] = arg1;
       value [ARG2] = refno;
-#if STYLE >= 11
-      if (refno == BADWORD || refno == AMBIGWORD || refno == AMBIGTYPO)
-#else
-#  if STYLE == 1
-      if (refno == BADWORD)
-#  else
-      if (refno == BADWORD || refno == AMBIGWORD)
-#  endif
-#endif
-         (void) strncpy (arg2_word, tp [tindex - 1], WORDSIZE);
-      else
-      {
-         (void) advcpy (arg2_word, tadr);
-#ifdef DWARVEN
-         if (value [DWARVEN] || extra_dwarvish)
-         {
-            char *wp = arg2_word;
-            while (*wp)
-               shift_up (wp++);
-         }
-#endif /* DWARVEN */
-      }
       value [STATUS] = 2;
       goto got_command;
    }
 #endif /* PLSCLARIFY */
    value [ARG1] = refno;
-#if STYLE >= 11
-   if (refno == BADWORD || refno == AMBIGWORD || refno == AMBIGTYPO)
-#else
-#  if STYLE == 1
-   if (refno == BADWORD)
-#  else
-   if (refno == BADWORD || refno == AMBIGWORD)
-#  endif
-#endif
-      (void) strncpy (arg1_word, tp [tindex - 1], 20);
-   else
-   {
-      (void) advcpy (arg1_word, tadr);
-#ifdef DWARVEN
-      if (value [DWARVEN] || extra_dwarvish)
-      {
-         char *wp = arg1_word;
-         while (*wp)
-            shift_up (wp++);
-      }
-#endif /* DWARVEN */
-   }
    value [STATUS] = 1;
 
 get_arg2:
@@ -2759,7 +2745,7 @@ get_arg2:
 #if defined(FMAGIC) && defined (LMAGIC)
    if (value [ARG1] > FMAGIC && value [ARG1] < LMAGIC)
    {
-      separator [tindex + 1] = ';';
+      separator [tindex] = ';';
       goto got_command;
    }
 #endif
@@ -2801,46 +2787,7 @@ get_arg2:
          goto get_arg2;
 
       value [ARG2] = refno;
-#if STYLE >= 11
-      wp = (refno == BADWORD || refno == AMBIGWORD || refno == AMBIGTYPO) ?
-#else
-#  if STYLE == 1
-      wp = (refno == BADWORD) ?
-#  else
-      wp = (refno == BADWORD || refno == AMBIGWORD) ?
-#  endif
-#endif
-         tp [tindex - 1] : &text [tadr];
-
-#if STYLE >= 11
-      if (refno == BADWORD || refno == AMBIGWORD || refno == AMBIGTYPO)
-#else
-#  if STYLE == 1
-      if (refno == BADWORD)
-#  else
-      if (refno == BADWORD || refno == AMBIGWORD)
-#  endif
-#endif
-         (void) strncpy (arg2_word, tp [tindex - 1], 20);
-      else 
-      {
-         (void) advcpy (arg2_word, tadr);
-#ifdef DWARVEN
-         if (value [DWARVEN] || extra_dwarvish)
-         {
-            char *wp = arg2_word;
-            while (*wp)
-               shift_up (wp++);
-         }
-#endif /* DWARVEN */
-      }
       value [STATUS] = 2;
-
-#if STYLE >= 11
-      if ((refno == BADWORD || refno == AMBIGTYPO) && 
-         btfind (word_buf, tp [tindex - 1]))
-            value [ARG2] = SCENEWORD;
-#endif /* STYLE >= 11 */
    }
 
 got_command:
@@ -2849,9 +2796,14 @@ got_command:
 #endif /* AGAIN */
    if (value [STATUS] == 1 && orphan)
    {
-      value [STATUS] = 2;
-      value [ARG2] = orphan;
-      (void) strncpy (arg2_word, orphan_word, 20);
+      if ((orphan > LOBJECT && value [ARG1] < LOBJECT) ||
+          (orphan < LOBJECT && value [ARG1] > LOBJECT))
+      {
+         value [STATUS] = 2;
+         value [ARG2] = orphan;
+         (void) strncpy (arg2_word, orphan_word, 20);
+      }
+      orphan = 0;         
    }
 
    if (   value [ARG1] == BADWORD   || value [ARG2] == BADWORD
@@ -2920,15 +2872,7 @@ got_command:
             }
             value [ARG3] = -1;
             if (refno >= BADWORD)
-            {
-               value [ARG3] = refno;
-               (void) strncpy (arg3_word, tp [tindex], WORDSIZE);
-#ifdef DWARVISH
-               if (value[DWARVEN])
-                  shift_down (arg3_word, WORDSIZE);
-#endif
                return;
-            }
          }
       }
 #endif /* ALL and EXCEPT */
@@ -3693,7 +3637,7 @@ int initialise ()
    if (dump_name == NULL || *dump_name == '\0')
 #endif
    {
-      PRINTF ("\n[A-code kernel version 11.47; MLA, 14 Feb 2003]\n");
+      PRINTF ("\n[A-code kernel version 11.48; MLA, 16 Feb 2003]\n");
    }
    *data_file = '\0';
    if (SEP != '?')
