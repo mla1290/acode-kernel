@@ -1,5 +1,8 @@
 /* advkern.c (adventure) - copyleft Mike Arnautov 1990-2003.
  *
+ * 23 Feb 03   MLA        Bug: Fixed CGI version handling.
+ * 21 Feb 03   MLA        Rationalised use of database use or non-use.
+ * 20 Feb 03   MLA        Merged database into executable.
  * 16 Feb 03   MLA        bug: several small command handling bugs.
  * 14 Feb 03   MLA        Bug: Fixed '-l -c name' handling in command args.
  * 09 Feb 03   MLA        Use F/LMAGIC and F/LDIR. Also use SAY.
@@ -164,12 +167,21 @@
 
 /* extern void *malloc(); */
 
-#if defined(unix) || defined(linux) || defined(vms) || defined(__50SERIES) || defined (_WIN32) || defined (__CYGWIN__)
+#ifdef SWAP
+#  if SWAP < 16
+#     undef SWAP
+#     define SWAP 32
+#  endif /* SWAP < 16 */
+#  if SWAP > 128
+#     undef SWAP
+#     define SWAP 128
+#  endif /* SWAP > 128 */
+#  ifndef USEDB
+#     define USEDB
+#  endif /* USEDV */
+#endif /* SWAP */
+#ifndef SWAP
 #  define MEMORY
-#else
-#  ifndef MSDOS
-#     define MSDOS
-#  endif /* MSDOS */
 #endif
 
 #if defined(MSDOS) && defined(MEMORY)
@@ -239,7 +251,10 @@ FILE *com_file = NULL;
 char *com_name = NULL;
 char *dump_name = NULL;
 
-#include "advkern.h"
+#include "adv0.h"
+#ifndef USEDB
+#  include "adv6.h"
+#endif /* ! USEDB */
 
 #define SW_START     '\377'
 #define SW_BREAK     '\376'
@@ -288,7 +303,9 @@ void outbuf (int);
 int value_all;
 jmp_buf loop_back;
 char data_file [128];
-char *dbs_dir = NULL;
+#ifdef USEDB
+   char *dbs_dir = NULL;
+#endif /* USEDB */
 char exec [128];
 char virgin;
 int value [LTEXT]; /* Was LVARIABLE */
@@ -351,42 +368,42 @@ int amatch = 1;
    char *cgi_name = ".C.adv";
 #endif
 
-#include "autod1.h"
-#include "autod3.h"
-#include "autod4.h"
-#include "autod2.h"
-#include "autod5.h"
+#include "adv1.h"
+#include "adv3.h"
+#include "adv4.h"
+#include "adv2.h"
+#include "adv5.h"
 
 #ifdef AGAIN
    int fresh_line = 1;
 #endif /* AGAIN */
 
 #ifdef MEMORY
-#  ifdef BUFFERS
-#     undef BUFFERS
-#  endif /* BUFFERS */
+#  ifdef SWAP
+#     undef SWAP
+#  endif /* SWAP */
    char text [TEXT_BYTES];
 #else /* not MEMORY */
 #  define TEXT_CHUNK 1024
 #  ifdef MSDOS
-#     ifdef BUFFERS
-#        if BUFFERS == 0
-#           undef BUFFERS
-#        endif /* BUFFERS == 0 */
-#     else /* !BUFFERS */
-#        define BUFFERS 31
-#     endif /* BUFFERS */
+#     ifdef SWAP
+#        if SWAP == 0
+#           undef SWAP
+#        endif /* SWAP == 0 */
+#     else /* !SWAP */
+#        define SWAP 31
+#     endif /* SWAP */
 #  endif /* MSDOS */
-#  ifdef BUFFERS
-      char text [BUFFERS * TEXT_CHUNK];
-      int chunk_start [BUFFERS];
-      int chunk_end [BUFFERS];
-      int chunk_age [BUFFERS];
-#  else /* not BUFFERS */
+#  ifdef SWAP
+      char text [SWAP * TEXT_CHUNK];
+      int chunk_start [SWAP];
+      int chunk_end [SWAP];
+      int chunk_age [SWAP];
+#  else /* not SWAP */
       char text [TEXT_CHUNK];
       int chunk_start;
       int chunk_end;
-#  endif /* BUFFERS */
+#  endif /* SWAP */
 #endif /* MEMORY */
 
 char *tp [100];
@@ -431,7 +448,7 @@ char *lptr;
 int text_len = 0;
 int location_all;
 int type_all;
-char title [16];
+char title [80];
 int titlen;
 int quitting;
 int eol_count = 0;
@@ -828,65 +845,6 @@ int btfind (short *root, char *word)
    return (0);
 }
 
-#if defined(BT_SPAN) && BT_SPAN != 0
-void btaction (short *root, int node)
-{
-   puts ((char *)(root + node + BT_TXT));
-}
-
-void btspan (short *root)
-{
-   int state = 0;
-   int node = *(root + 1);
-   int next;
-   
-   if (node == 0)
-      return;
-      
-   while (node)
-   {
-      switch (state)
-      {
-         case 0:
-            if (next = *(root + node + BT_UP + BT_LSIB))
-            {
-               node = next;
-            }
-            else if (*(root + node + BT_UP + BT_RSIB))
-               state = 1;
-            else
-               state = 3;
-            break;
-            
-         case 1:
-            btaction (root, node);
-            if (next = *(root + node + BT_UP + BT_RSIB))
-            {
-               node = next;
-               state = 0;
-            }
-            else
-               state = 2;
-            break;
-            
-         case 3:
-            btaction (root, node);
-            
-         case 2:
-            if (next = *(root + node + BT_UP))
-            {
-               if (*(root + next + BT_UP + BT_LSIB) == node)
-                  state = 1;
-               else
-                  state = 2;
-            }
-            node = next;
-            break;
-      }
-   }
-}
-#endif /* BT_SPAN */
-
 #ifdef __STDC__
 void word_update (void)
 #else
@@ -937,10 +895,11 @@ int char_addr;
       mask = char_addr & 127;
    if (mask == 0)
       mask = 'X';
+   mask = (17 * mask + 13) & 127;
    return (mask ^ text [char_addr] ^ title [char_addr % titlen]);
 #  endif /* PLAIN */
 #else /* not MEMORY */
-#  ifdef BUFFERS
+#  ifdef SWAP
    int index;
    char *buf_ptr;
    int oldest_chunk;
@@ -949,14 +908,14 @@ int char_addr;
    
    oldest_chunk = 0;
    buf_ptr = text;
-   for (index = 0; index < BUFFERS; index++)
+   for (index = 0; index < SWAP; index++)
    {
       if (char_addr >= chunk_start [index] && char_addr < chunk_end [index])
          goto gotit;
       buf_ptr += TEXT_CHUNK;
    }
 
-   for (index = 0; index < BUFFERS; index++)
+   for (index = 0; index < SWAP; index++)
    {
       if (chunk_end [index] == 0)
          goto readit;
@@ -991,12 +950,13 @@ gotit:
       mask = char_addr & 127;
    if (mask == 0)
       mask = 'X';
+   mask = (17 * mask + 13) & 127;
    return 
       (*(buf_ptr + char_addr - chunk_start [index]) ^ mask ^ 
          title [char_addr % titlen]);
 #endif /* PLAIN */
-#else /* not BUFFERS */
-   void file_oops ();
+#else /* not SWAP */
+  void file_oops ();
 
    if (char_addr < chunk_start || char_addr >= chunk_end)
    {
@@ -1017,10 +977,11 @@ gotit:
       mask = char_addr & 127;
    if (mask == 0)
       mask = 'X';
+   mask = (17 * mask + 13) & 127;
    return (text [char_addr - chunk_start] ^ mask ^ title [char_addr % titlen]);
 #endif /* PLAIN */
 
-#endif /* BUFFERS */
+#endif /* SWAP */
 }
 
 #ifdef __STDC__
@@ -1860,6 +1821,7 @@ int insize;
 #endif 
    if (text_len)
       outbuf (0);
+   scrchk (1);
 #if STYLE >= 11
    upcase = 1;
 #endif /* STYLE >= 11 */
@@ -2185,12 +2147,13 @@ int gripe;
 #endif
 #else
 #ifdef __STDC__
-int find_word (int *type, int *refno, int *tadr)
+int find_word (int *type, int *refno, int *tadr, int which_arg)
 #else
-int find_word (type, refno, tadr)
+int find_word (type, refno, tadr, which_arg)
 int *type;
 int *refno;
 int *tadr;
+int which_arg;
 #endif
 #endif
 {
@@ -2476,7 +2439,7 @@ done:
 #endif /* DWARVEN */
    }
    if (*refno >= BADWORD)
-      tp [tindex] = NULL; /* Discard rest of command */
+      tp [tindex + 1] = NULL; /* Discard rest of command */
 /*   {
  *      while (tp [tindex])
  *        tindex++;
@@ -2681,7 +2644,7 @@ get_arg1:
    *orig = '\0';
    find_word (&type, &refno, &tadr, separator [tindex] == ',' ? 2 : 1, 1);
 #else
-   find_word (&type, &refno, &tadr);
+   find_word (&type, &refno, &tadr, separator [tindex] == ',' ? 2 : 1);
 #endif
    tindex++;
    if (type == NOISE)
@@ -2742,17 +2705,17 @@ get_arg1:
 get_arg2:
    if (separator [tindex] == ' ' && tp [tindex])
    {
-#if defined(FMAGIC) && defined (LMAGIC)
-   if (value [ARG1] > FMAGIC && value [ARG1] < LMAGIC)
-   {
-      separator [tindex] = ';';
-      goto got_command;
-   }
-#endif
 #if defined(FSPECIAL) && defined(LSPECIAL)
       int bmatch = amatch;
       if (amatch == 1)
          amatch = (value [ARG1] < FSPECIAL || value [ARG1] > LSPECIAL);
+#endif
+#if defined(FMAGIC) && defined (LMAGIC)
+      if (value [ARG1] > FMAGIC && value [ARG1] < LMAGIC)
+      {
+         separator [tindex] = ';';
+         goto got_command;
+      }
 #endif
 #if STYLE >= 11
 #ifdef SAY
@@ -2777,7 +2740,7 @@ get_arg2:
       *orig = '\0';
       find_word (&type, &refno, &tadr, 2, 1);
 #else
-      find_word (&type, &refno, &tadr);
+      find_word (&type, &refno, &tadr, 2);
 #endif
 #if defined(FSPECIAL) && defined(LSPECIAL)
       amatch = bmatch;
@@ -2897,18 +2860,20 @@ got_command:
 #endif /* AGAIN */
    if (value [STATUS] == BADSYNTAX || value [ARG1] > STATUS || 
        value [ARG2] > STATUS)       /* Bad command! Ignore rest of line */
-          while (tp [tindex]) tindex++;
+          tp [tindex + 1] = NULL;
 #else
       }
    }
 #endif
    if (value [STATUS] == 1)
       value [ARG2] = -1;
+#if STYLE >= 11
    else if (value [STATUS] == BADSYNTAX)
    {
       value [ARG1] = -1;
       value [ARG2] = -1;
    }
+#endif
    return;
 }
 
@@ -3020,7 +2985,6 @@ int *var;
    static char *image_base = NULL;
    char *image_ptr;
    char file_name [20];
-   char save_title [32];
    FILE *game_file;
    int val, val1;
    int lval;
@@ -3136,7 +3100,7 @@ try_again:
             return (1);
          }
          (void) time ((time_t *) &tval[0]);
-         (void) fprintf (game_file, "%s\n", DBNAME);
+         (void) fprintf (game_file, "%s\n", VERSION);
          val = FOBJECT;
          (void) fwrite (&val, sizeof (int), 1, game_file);
          val = LOBJECT;
@@ -3206,41 +3170,45 @@ restore_it:
          }
 #endif
          val1 = 0;
-         (void) fscanf (game_file, "%s", save_title);
+         cptr = VERSION;
+         while (*cptr)
+            if (*cptr++ != fgetc (game_file))
+            {
+               printf ("Version mismatch!\n");
+               exit (0);
+            }
          (void) fgetc (game_file);         /* Skip \n */
-         if (strcmp (save_title, DBNAME) == 0)
-         {
-            (void) fread (&val, sizeof (int), 1, game_file);
+         (void) fread (&val, sizeof (int), 1, game_file);
 #ifdef DEBUG
-            printf ("FOBJECT: image %3d, expected %3d\n", val, FOBJECT);
+         printf ("FOBJECT: image %3d, expected %3d\n", val, FOBJECT);
 #endif /* DEBUG */
-            if (val != FOBJECT) val1++;
-            (void) fread (&val, sizeof (int), 1, game_file);
+         if (val != FOBJECT) val1++;
+         (void) fread (&val, sizeof (int), 1, game_file);
 #ifdef DEBUG
-            printf ("LOBJECT: image %3d, expected %3d\n", val, LOBJECT);
+         printf ("LOBJECT: image %3d, expected %3d\n", val, LOBJECT);
 #endif /* DEBUG */
-            if (val != LOBJECT) val1++;
-            (void) fread (&val, sizeof (int), 1, game_file);
+         if (val != LOBJECT) val1++;
+         (void) fread (&val, sizeof (int), 1, game_file);
 #ifdef DEBUG
-            printf ("LPLACE: image %3d, expected %3d\n", val, LPLACE);
+         printf ("LPLACE: image %3d, expected %3d\n", val, LPLACE);
 #endif /* DEBUG */
-            if (val != LPLACE) val1++;
-            (void) fread (&val, sizeof (int), 1, game_file);
+         if (val != LPLACE) val1++;
+         (void) fread (&val, sizeof (int), 1, game_file);
 #ifdef DEBUG
-            printf ("LVERB: image %3d, expected %3d\n", val, LVERB);
+         printf ("LVERB: image %3d, expected %3d\n", val, LVERB);
 #endif /* DEBUG */
-            if (val != LVERB) val1++;
-            (void) fread (&val, sizeof (int), 1, game_file);
+         if (val != LVERB) val1++;
+         (void) fread (&val, sizeof (int), 1, game_file);
 #ifdef DEBUG
-            printf ("LVARIABLE: image %3d, expected %3d\n", val, LVARIABLE);
+         printf ("LVARIABLE: image %3d, expected %3d\n", val, LVARIABLE);
 #endif /* DEBUG */
-            if (val != LVARIABLE) val1++;
-            (void) fread (&val, sizeof (int), 1, game_file);
+         if (val != LVARIABLE) val1++;
+         (void) fread (&val, sizeof (int), 1, game_file);
 #ifdef DEBUG
-            printf ("LTEXT: image %3d, expected %3d\n", val, LTEXT);
+         printf ("LTEXT: image %3d, expected %3d\n", val, LTEXT);
 #endif /* DEBUG */
-            if (val > LTEXT) val1++;
-         }
+         if (val > LTEXT) val1++;
+
          if (val1)
          {
             *var = 2;
@@ -3362,11 +3330,11 @@ restore_it:
          *var = 0;
          return (0);
       case 14:         /* Check for virgin game */
-         if ((*var = (rape_file = fopen ("adv.vrg", "r")) ? 0 : 1) == 0)
+         if ((*var = (rape_file = fopen ("adv.vrg", RMODE)) ? 0 : 1) == 0)
             fclose (rape_file);
          return (0);
       case 15:         /* Note that he meditated, as he should */
-         if (rape_file = fopen ("adv.vrg", "w"))
+         if (rape_file = fopen ("adv.vrg", WMODE))
             fclose (rape_file);
          return (0);
       case 16:        /* Initial restore */
@@ -3607,6 +3575,55 @@ restore_it:
    }
 }
 
+#ifdef USEDB
+#ifdef __STDC__
+void create_db (void)
+#else
+void create_db ()
+#endif
+{
+   FILE *db_file;
+   char ch;
+   int val = 0;
+   int bytes = 0;
+   int sgn = 0;
+   
+   if ((db_file = fopen (DBNAME, WMODE)) == NULL)
+      return;
+   while (fgetc (text_file) != '{')
+      if (ferror (text_file))
+         return;
+   while (1)
+   {
+      ch = fgetc (text_file);
+      if (ferror (text_file))
+         return;
+      if (isdigit (ch))
+      {
+         sgn = 1;
+         val = 10 * val + ch - '0';   
+      }
+      else if (ch == '-' && sgn == 0 && val == 0)
+         sgn = -1;
+      else if (sgn)
+      {
+         if (sgn == -1)
+            val = - val;
+         fputc (val & 255, db_file);
+         sgn = 0;
+         val = 0;
+         bytes++;
+      }
+      if (ch == '}')
+         break;
+   }
+   if (bytes != TEXT_BYTES)
+      return;
+   printf ("Database %s created.\n", DBNAME);
+   exit (0);
+}
+#endif /* USEDB */
+
 #ifdef __STDC__
 int initialise (void)
 #else
@@ -3637,7 +3654,7 @@ int initialise ()
    if (dump_name == NULL || *dump_name == '\0')
 #endif
    {
-      PRINTF ("\n[A-code kernel version 11.48; MLA, 16 Feb 2003]\n");
+      PRINTF ("\n[A-code kernel version 11.50; MLA, 21 Feb 2003]\n");
    }
    *data_file = '\0';
    if (SEP != '?')
@@ -3663,6 +3680,7 @@ int initialise ()
          strcat (log_name, ".log");
       }
       
+#ifdef USEDB
       if (dbs_dir)
       {
          strncpy (data_file, dbs_dir, sizeof (data_file) - 14);
@@ -3675,15 +3693,17 @@ int initialise ()
          if (len > sizeof (data_file) - 13) len = sizeof (data_file) - 13;
          strncpy (data_file, exec, len);
       }
+#endif /* USEDB */
    }
 
-   
-   (void) strncat (data_file, DBNAME, 8);
-   (void) strcat (data_file, ".dat");
+#ifdef DBNAME
+   (void) strcat (data_file, DBNAME);
 
    if ((text_file = fopen (data_file, RMODE)) == NULL)
    {
-      (void) printf ("Sorry, can't find the %s data file.\n", DBNAME);
+      if (text_file = fopen ("adv6.h", RMODE))
+         (void) create_db ();
+      (void) printf ("Sorry, can't find the %s data file.\n", data_file);
       close_files ();
       exit (0);
    }
@@ -3699,25 +3719,27 @@ int initialise ()
    }
 #else /* not MEMORY */
 /*   (void) setbuf (text_file, NULL);  */
-#ifdef BUFFERS
+#ifdef SWAP
    chunk_end [0] = fread (text, sizeof (char), TEXT_CHUNK, text_file) - 1;
    chunk_start [0] = 0;
-#else /* not BUFFERS */
+#else /* not SWAP */
    chunk_end = fread (text, sizeof (char), TEXT_CHUNK, text_file) - 1;
    chunk_start = 0;
-#endif /* BUFFERS */
+#endif /* SWAP */
 #endif /* MEMORY */
+#endif /* DBNAME */
 
    virgin = *text;
-   title [0] = text [1] ^ 'x';
+   title [0] = text [1] ^ KNOT;
    titlen = 0;
-   while (++titlen < 16)
+   while (++titlen < 80)
       if ((title [titlen] = title [titlen - 1] ^ text [titlen + 1]) == '\0')
          break;
    
-   if (strcmp (title, DBNAME) != 0)
+   if (strcmp (title, VERSION) != 0)
    {
-      (void) printf ("Data file does not belong to this program!\n");
+      printf ("  title '%s',\nversion '%s'\n", title, VERSION);
+      (void) printf ("Version stamp mismatch!\n");
       return (1);
    }
    tp [0] = NULL;
@@ -3732,7 +3754,7 @@ int initialise ()
    bitmod ('s', STATUS, BRIEF);
 #endif
 
-   if (com_name && *com_name && (com_file = fopen (com_name, "r")) == NULL)
+   if (com_name && *com_name && (com_file = fopen (com_name, RMODE)) == NULL)
    {
       (void) printf ("Sorry, unable to open command file '%s'!\n", com_name);
       exit (0);
@@ -3740,12 +3762,12 @@ int initialise ()
    if (com_file)
    {
       fgets (comline, sizeof (comline), com_file);
-      if (strncmp (comline, DBNAME, strlen (DBNAME)) != 0)
+      if (strncmp (comline, VERSION, strlen (VERSION)) != 0)
       {
          printf ("%s: wrong adventure version!", com_name);
          exit (0);
       }
-      mainseed = atol (comline + strlen (DBNAME) + 1);
+      mainseed = atol (comline + strlen (VERSION) + 1);
    }
 
    if (*log_name)
@@ -3754,7 +3776,7 @@ int initialise ()
          (void) printf ("(Sorry, unable to open log file...)\n");
 #ifdef CONTEXT
       else if (cgi == 0 || cgi == 'x')
-         (void) fprintf (log_file, "%s: %lu\n", DBNAME, mainseed);
+         (void) fprintf (log_file, "%s: %lu\n", VERSION, mainseed);
 #endif
    }
 
@@ -3772,36 +3794,15 @@ char* arglist[1] = { "" };
 
 int winglk_startup_code(const char* cmdline)
 {
-#ifdef DBNAME
-
-/* Hardwire some obvious names... */
-
-   if (strncmp (DBNAME, "adv350", 6) == 0)
-   {
-      winglk_app_set_name("Adv350");
-      winglk_window_set_title("Adventure 350");
-   }
-   else if (strncmp (DBNAME, "adv440", 6) == 0)
-   {
-      winglk_app_set_name("Adv440");
-      winglk_window_set_title("Adventure 440");
-   }
-   else if (strncmp (DBNAME, "adv550", 6) == 0)
-   {
-      winglk_app_set_name("Adv550");
-      winglk_window_set_title("Adventure 550");
-   }
-   else if (strncmp (DBNAME, "adv660", 6) == 0)
-   {
-      winglk_app_set_name("Adv660");
-      winglk_window_set_title("Adventure 660");
-   }
-   else if (strncmp (DBNAME, "adv770", 6) == 0)
-   {
-      winglk_app_set_name("Adv770");
-      winglk_window_set_title("Adventure 770");
-   }
-#endif /* DBNAME */
+   char name[80];
+   char *nptr = name;
+   char *cptr = VERSION;
+   
+   while (isalnum (*cptr) && (nptr - name) < 78)
+      *nptr++ = *cptr++;
+   *nptr = '\0';
+   winglk_app_set_name(name);
+   winglk_window_set_title(VERSION);
    argc = 1;
    argv = arglist;
    return 1;
@@ -3860,7 +3861,9 @@ glkunix_argumentlist_t glkunix_arguments[] =
    {
       {"",   glkunix_arg_ValueFollows, "[<dumpfile]: game to restore"},
       {"-b", glkunix_arg_NoValue, "-b: toggle blank lines around prompt"},
+#ifdef USEDB
       {"-d", glkunix_arg_ValueFollows, "-d <dirname>: dbs directory"},
+#endif /* USEDB */
       {"-r", glkunix_arg_ValueFollows, "[-r] <savefile>: restore game"},
       {"-c", glkunix_arg_ValueFollows, "-c <comfile>: replay game from log"},
       {"-l", glkunix_arg_ValueCanFollow, "-l [<logfile>]: log the game"},
@@ -3950,8 +3953,10 @@ char **argv;
             printf ("    -w                invert default wrap/justify setting\n");
             printf ("    -b                invert default setting for blank lines around prompt\n");
             printf ("    -s <W>x<H>[-<M>]  set screen size and margin\n");
-#endif
+#endif /* GLK */
+#ifdef USEDB
             printf ("    -d <dbsdir>       specify dbs directory\n");
+#endif /* USEDB */
             printf ("   [-r] <dumpfile>    restore game from dump\n");
             printf ("    -c <cominfile>    replay game from log\n");
             printf ("    -l <logfile>      log the game\n");
@@ -3988,9 +3993,11 @@ char **argv;
                Maxlen = Linlen - 2 * Margin;
                break;
                
+#ifdef USEDB
             case 'd':
                dbs_dir = opt;
                break;
+#endif /* USEDB */
                
             case 'l':
                strncpy (log_name, opt, sizeof (log_name));

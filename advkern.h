@@ -1,4 +1,4 @@
-/* advkern.h - copyleft @ Mike Arnautov 1990-2003. */
+/* adv0.h - copyleft @ Mike Arnautov 1990-2003. */
 
 #include <stdio.h>
 #include <setjmp.h>
@@ -75,7 +75,7 @@ extern short objbits[];
 extern short placebits[];
 extern short varbits[];
 extern void (*procs[])();
-#include "autod1.h"
+#include "adv1.h"
 #ifdef ALL
 extern int value_all;
 #endif
