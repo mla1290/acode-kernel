@@ -41,6 +41,7 @@ extern void tie (int text, int holder);
 extern int jrand (int limit);
 extern void glue_text (void);
 extern void verbatim (int);
+extern int memstore (int);
 extern int test(char *);
 #else
 extern void say ();
@@ -75,6 +76,7 @@ extern void tie ();
 extern int jrand ();
 extern void glue_text ();
 extern void verbatim ();
+extern int memstore ();
 extern int test();
 #endif
 extern jmp_buf loop_back;

@@ -1,7 +1,8 @@
 /* adv00.c: A-code kernel - copyleft Mike Arnautov 1990-2004.
  */
-#define KVERSION "11.75; MLA, 19 Aug 2004"
+#define KVERSION "11.76; MLA, 05 Dec 2004"
 /*
+ * 05 Dec 04   MLA        Bug: Verbatim glitch.
  * 19 Aug 04   MLA        Replaced special(31) with verbatim().
  * 08 Aug 04   MLA        bug: Force logfile in CGI mode.
  * 07 Aug 04   MLA        Bug: Remember game name on initial restore in
@@ -5096,7 +5097,7 @@ int arg;
       strncpy (arg1_word, tp [tindex - 1], WORDSIZE);
    else if (arg == ARG2 && value [STATUS] == 2)
       strncpy (arg2_word, tp [tindex - 1], WORDSIZE);
-   else
+   else if (arg != ARG2)
       (void) PRINTF2 ("GLITCH! Bad ARGn indicator: %d\n", arg);
 }
 
