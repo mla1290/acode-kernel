@@ -1,7 +1,8 @@
 /* adv00.c: A-code kernel - copyleft Mike Arnautov 1990-2005.
  */
-#define KVERSION "11.82; MLA, 18 Jan 2005"
+#define KERNEL_VERSION "11.83, MLA - 20 Feb 2005"
 /*
+ * 20 Feb 05   MLA        Bug: Don't strip off dots if no matching!
  * 18 Jan 05   MLA        Allowed for nested vars and others.
  * 09 Jan 05   MLA        Command line and symbol handling of UNDO status.
  * 03 Jan 05   MLA        Added undo history keeping.
@@ -344,7 +345,7 @@ char *lbuf;
 #endif
 
 FILE *text_file;
-FILE *rape_file;
+FILE *gv_file;
 FILE *log_file = NULL;
 char log_name [32];
 #ifdef LOG
@@ -2454,13 +2455,6 @@ int which_arg;
    int ra;
    char myword [WORDSIZE];
   
-#if STYLE >= 11
-   if (amatch == -1)
-   {
-      *refno = BADWORD;
-      goto done;
-   }
-#endif /* STYLE >= 11 */
    strcpy (myword, tp [tindex]);
 #ifdef DWARVEN
    if (value [DWARVEN]) shift_down (myword, WORDSIZE);
@@ -2577,7 +2571,8 @@ int which_arg;
    }
 
 #if STYLE >= 11
-   if (*refno == BADWORD && amatch)
+
+   if (*refno == BADWORD && amatch > 0)
    {
       char *bp = NULL;
       int ba = 0;
@@ -2747,16 +2742,27 @@ void parse ()
    for (cptr = comline; *cptr; cptr++)
       *cptr = tolower (*cptr);
    cptr = lptr = comline;
-   while (*cptr == ' ' || *cptr == ',' || *cptr == '.' || *cptr == ';')
+   while (*cptr == ' ' || *cptr == ',' || *cptr == ';' || 
+         (*cptr == '.' && *(cptr + 1) != '.' && *(cptr + 1) != '/' &&
+                          *(cptr + 1) != '\\'))
       cptr++;
    while (*cptr)
    {
+      if (*cptr == '.' && (*(cptr + 1) == '.' || *(cptr + 1) == '/' ||
+                           *(cptr + 1) == '\\'))
+      {
+         *lptr++ = *cptr++;
+         continue;
+      }
+      
       while (*cptr && *cptr != ' ' && *cptr != ',' && *cptr != ';' && 
              *cptr != '.' && *cptr != '\n')
          *lptr++ = *cptr++;
       sep = ' ';
-      while (*cptr == ' ' || *cptr == ',' || *cptr == '.' || 
-         *cptr == ';' || *cptr == '\n')
+      while (*cptr == ' ' || *cptr == ',' || *cptr == ';' || 
+            *cptr == '\n' || 
+            (*cptr == '.' && *(cptr + 1) != '.' && *(cptr + 1) != '/' &&
+                             *(cptr + 1) != '\\'))
       {
          if (*cptr == '.')
             *cptr = ';';
@@ -2767,8 +2773,7 @@ void parse ()
             sep = *cptr;
          cptr++;
       }
-      if (*cptr)
-         *lptr++ = sep;
+      *lptr++ = sep;
    }
    *lptr++ = '\n';
    *lptr = '\0';
@@ -3974,12 +3979,12 @@ restore_it:
          return (0);
 /*    case 13: */         /* Spare */
       case 14:         /* Check for virgin game */
-         if ((*var = (rape_file = fopen ("adv.vrg", RMODE)) ? 0 : 1) == 0)
-            fclose (rape_file);
+         if ((*var = (gv_file = fopen ("adv.vrg", RMODE)) ? 0 : 1) == 0)
+            fclose (gv_file);
          return (0);
       case 15:         /* Note that he meditated, as he should */
-         if (rape_file = fopen ("adv.vrg", WMODE))
-            fclose (rape_file);
+         if (gv_file = fopen ("adv.vrg", WMODE))
+            fclose (gv_file);
          return (0);
 /*    case 16: */        /* Spare */
 /*    case 17: */        /* Spare */
@@ -4233,7 +4238,7 @@ int initialise ()
 #endif
 #endif /* ! GLK */
    {
-      PRINTF2 ("\n[A-code kernel version %s]\n", KVERSION);
+      PRINTF2 ("\n[A-code kernel version %s]\n", KERNEL_VERSION);
 #ifdef CONTEXT
       if (cgi)
          PRINTF1 ("<br />\n");
@@ -4725,17 +4730,11 @@ char **argv;
 
 #ifdef UNDO
    if (undo_def == -2)
-{fprintf (stderr, "+++ Setting undo.none\n");
       bitmod ('s', UNDO_STAT, UNDO_NONE);
-}
    else if (undo_def == 1)
-{fprintf (stderr, "+++ Setting undo.info\n");
       bitmod ('s', UNDO_STAT, UNDO_INFO);
-}
    else if (undo_def == -1)
    {
-fprintf (stderr, "+++ Setting undo.off\n");
-fprintf (stderr, "+++ Setting undo.info\n");
       bitmod ('s', UNDO_STAT, UNDO_INFO);
       bitmod ('s', UNDO_STAT, UNDO_OFF);
    }
