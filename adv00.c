@@ -1,5 +1,8 @@
 /* adv00.c: A-code kernel - copyleft Mike Arnautov 1990-2003.
  *
+ * 27 Jun 03   MLA        BUG: Use separate memory for checking restore!
+ * 22 Jun 03   MLA        BUG: Make sure command is lowercased!!!
+ * 16 Jun 03   MLA        Bug: Fixed variant bit testing in voc().
  * 31 May 03   MLA        More tolerance for shorter (older) save-files.
  * 26 May 03   MLA        Parser re-write: THEN is now equivalent to semicolon.
  *                        Also, let the game do pre-saying.
@@ -96,7 +99,7 @@
  *                        BUG: Fake checking the VERB flag.
  * 17 May 01   MLA        Added fake() for FAKECOM.
  * 16 May 01   MLA        Bug: HTML-quote angled brackets!
- * 12 May 01   MLA        Bug: condifionally switch off amatching for ARG2.
+ * 12 May 01   MLA        Bug: conditionally switch off amatching for ARG2.
  * 06 May 01   MLA        bug: Fixed approximate matching.
  * 02 May 01   MLA        Bug: Fixed yet another "null command" bug. :-(
  * 16 Apr 01   MLA        Fixed zapping save file on initial restore.
@@ -1069,7 +1072,7 @@ int vtext;
    }
    if (what == 0)
       what = word;
-   if (test >0 && bitest (word, test) == 0)
+   if (test >0 && bitest (what, test) == 0)
       return;
    if (vc++ > 0)
    {
@@ -2518,6 +2521,8 @@ void parse ()
    char *cptr, *lptr;
    char sep;
    
+   for (cptr = comline; *cptr; cptr++)
+      *cptr = tolower (*cptr);
    cptr = lptr = comline;
    while (*cptr == ' ' || *cptr == ',' || *cptr == '.' || *cptr == ';')
       cptr++;
@@ -2622,10 +2627,7 @@ void parse ()
       if (token < 0) break;
       tp [tindex] = lp;
       while (*lp && ! strchr (" ,.;\n", *lp))
-      {
-         *lp = tolower (*lp);
          lp++;
-      }
       sep = 0;
       ew = lp;
       if (strcmp (tp [tindex], "and") == 0)
@@ -3869,7 +3871,7 @@ int initialise ()
    if (dump_name == NULL || *dump_name == '\0')
 #endif
    {
-      PRINTF ("\n[A-code kernel version 11.58; MLA, 31 May 2003]\n");
+      PRINTF ("\n[A-code kernel version 11.59; MLA, 27 Jun 2003]\n");
    }
    *data_file = '\0';
    if (SEP != '?')
