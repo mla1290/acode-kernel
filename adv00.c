@@ -1,5 +1,12 @@
 /* advkern.c: A-code kernel - copyleft Mike Arnautov 1990-2003.
  *
+ * 24 Mar 03   MLA        BUG: no SCHIZOID behaviour for INHAND in isat().
+ * 22 Mar 03   MLA        BUG: run p1() when restoring from command line!
+ * 20 Mar 03   MLA        Intelligent version checks on restore,
+ * 09 Mar 03   S. Munro   bug: Remove some redundant declaration.
+ *                        Work around an MS oddity in using CHKSUM.
+ *             MLA        Default to SWAP.
+ * 08 Mar 03   S. Munro   Bug: Fix several non-ANSI declaration.
  * 04 Mar 03   MLA        Trap bad command-line restores.
  *                        Re-do the handling of VARSION as GAMEID and DBNAME.
  * 24 Feb 03   MLA        Bug: Fixed create_db sign handling.
@@ -158,6 +165,75 @@
  *
  */
 
+#include "adv1.h"
+
+#ifdef USEDB
+#  undef USEDB
+#endif /* USEDB */
+
+#ifdef PRELOADED
+#  undef PRELOADED
+#endif /* PRELOADED */
+
+#ifdef MEMORY
+#  ifdef DBSTATUS
+#     undef DBSTATUS
+#  endif
+#endif /* MEMORY */
+
+#ifdef FILE
+#  undef FILE
+#  define READFILE
+#  ifdef SWAP
+#     undef SWAP
+#  endif
+#  ifdef MEMORY
+#     undef MEMORY
+#  endif
+#  ifdef DBSTATUS
+#     undef DBSTATUS
+#  endif
+#endif /* FILE */
+
+#ifdef SWAP
+#  ifdef MEMORY
+#     undef MEMORY
+#  endif
+#  ifdef DBSTATUS
+#     undef DBSTATUS
+#  endif
+#endif /* SWAP */
+
+#ifdef DBSTATUS
+#  if DBSTATUS == 0
+#     define PRELOADED
+#  endif
+#  if DBSTATUS == 1
+#     define MEMORY
+#  endif
+#  if DBSTATUS == 2
+#     define SWAP 32
+#  endif
+#  if DBSTATUS == 3
+#     define READFILE
+#  endif
+#endif /* DBSTATUS */
+
+#ifdef SWAP
+#  if SWAP < 16
+#     undef SWAP
+#     define SWAP 16
+#  endif /* SWAP < 16 */
+#  if SWAP > 128
+#     undef SWAP
+#     define SWAP 128
+#  endif /* SWAP > 128 */
+#endif /* SWAP */
+
+#ifndef PRELOADED
+#  define USEDB
+#endif
+
 #include <stdio.h>
 #include <time.h>
 #include <ctype.h>
@@ -167,29 +243,6 @@
 
 #ifdef NEED_UNISTD
 #include <unistd.h>
-#endif
-
-/* extern void *malloc(); */
-
-#ifdef SWAP
-#  if SWAP < 16
-#     undef SWAP
-#     define SWAP 32
-#  endif /* SWAP < 16 */
-#  if SWAP > 128
-#     undef SWAP
-#     define SWAP 128
-#  endif /* SWAP > 128 */
-#  ifndef USEDB
-#     define USEDB
-#  endif /* USEDV */
-#endif /* SWAP */
-#ifndef SWAP
-#  define MEMORY
-#endif
-
-#if defined(MSDOS) && defined(MEMORY)
-#  undef MEMORY
 #endif
 
 #if defined(unix) || defined(__CYGWIN__)
@@ -356,7 +409,7 @@ int amatch = 1;
 #else
    int justify = 0;
 #endif
-#if defined(COMPRESS) || STYLE == 1
+#if defined(TIGHT_PROMPT) || STYLE == 1
    int compress = 1;
 #else
    int compress = 0;
@@ -372,7 +425,6 @@ int amatch = 1;
    char *cgi_name = ".C.adv";
 #endif
 
-#include "adv1.h"
 #include "adv3.h"
 #include "adv4.h"
 #include "adv2.h"
@@ -383,32 +435,16 @@ int amatch = 1;
 #endif /* AGAIN */
 
 #ifdef MEMORY
-#  ifdef SWAP
-#     undef SWAP
-#  endif /* SWAP */
    char text [TEXT_BYTES];
-#else /* not MEMORY */
-#  define TEXT_CHUNK 1024
-#  ifdef MSDOS
-#     ifdef SWAP
-#        if SWAP == 0
-#           undef SWAP
-#        endif /* SWAP == 0 */
-#     else /* !SWAP */
-#        define SWAP 31
-#     endif /* SWAP */
-#  endif /* MSDOS */
-#  ifdef SWAP
-      char text [SWAP * TEXT_CHUNK];
-      int chunk_start [SWAP];
-      int chunk_end [SWAP];
-      int chunk_age [SWAP];
-#  else /* not SWAP */
-      char text [TEXT_CHUNK];
-      int chunk_start;
-      int chunk_end;
-#  endif /* SWAP */
 #endif /* MEMORY */
+
+#ifdef SWAP
+#  define TEXT_CHUNK 1024
+   char text [SWAP * TEXT_CHUNK];
+   int chunk_start [SWAP];
+   int chunk_end [SWAP];
+   int chunk_age [SWAP];
+#endif /* SWAP */
 
 char *tp [100];
 char separator [100];
@@ -877,9 +913,9 @@ void word_update ()
 #define MAX_BREAKS 100
 
 /* PRIVATE */
-#if defined(PLAIN) && defined(MEMORY)
+#if defined(PLAIN) && (defined(MEMORY) || defined(PRELOADED))
 #  define get_char(X) text[X]
-#else /* !PLAIN || !MEMORY */
+#else /* !PLAIN || (!MEMORY && !PRELOADED)*/
 #ifdef __STDC__
 char get_char (int char_addr)
 #else
@@ -890,10 +926,7 @@ int char_addr;
 #ifndef PLAIN
    int mask;
 #endif /* not PLAIN */
-#ifdef MEMORY
-#  ifdef PLAIN
-      return (text [char_addr]);
-#  else /* not PLAIN */
+#if defined(MEMORY) || defined (PRELOADED)
    mask = (char_addr >> 4) & 127;
    if (mask == 0)
       mask = char_addr & 127;
@@ -901,9 +934,8 @@ int char_addr;
       mask = 'X';
    mask = (17 * mask + 13) & 127;
    return (mask ^ text [char_addr] ^ title [char_addr % titlen]);
-#  endif /* PLAIN */
-#else /* not MEMORY */
-#  ifdef SWAP
+#endif /* MEMORY || PRELOADED */
+#ifdef SWAP
    int index;
    char *buf_ptr;
    int oldest_chunk;
@@ -959,22 +991,23 @@ gotit:
       (*(buf_ptr + char_addr - chunk_start [index]) ^ mask ^ 
          title [char_addr % titlen]);
 #endif /* PLAIN */
-#else /* not SWAP */
-  void file_oops ();
+#endif /* SWAP */
+#ifdef READFILE
+   void file_oops ();
+   static int file_addr = -1;
+   char this_char;   
 
-   if (char_addr < chunk_start || char_addr >= chunk_end)
+   if (file_addr != char_addr)
    {
       locate_faults++;
       if (fseek (text_file, char_addr, 0))
          file_oops ();
-      chunk_start = char_addr;
-      chunk_end = fread (text, sizeof (char), TEXT_CHUNK, text_file)
-         + chunk_start - 1;
-      if (chunk_start > chunk_end)
-         file_oops ();
+      file_addr = char_addr;
    }
+   this_char = fgetc (text_file);
+   file_addr++;
 #ifdef PLAIN
-   return (text [char_addr - chunk_start]);
+   return (this_char);
 #else /* not PLAIN */
    mask = (char_addr >> 4) & 127;
    if (mask == 0)
@@ -982,12 +1015,12 @@ gotit:
    if (mask == 0)
       mask = 'X';
    mask = (17 * mask + 13) & 127;
-   return (text [char_addr - chunk_start] ^ mask ^ title [char_addr % titlen]);
+   return (this_char ^ mask ^ title [char_addr % titlen]);
 #endif /* PLAIN */
-
-#endif /* SWAP */
+#endif /* READFILE */
 }
 
+#if defined(SWAP) || defined(READFILE)
 #ifdef __STDC__
 void file_oops (void)
 #else
@@ -999,8 +1032,8 @@ void file_oops ()
    (void) fclose (text_file);
    if (log_file) (void) fclose (log_file);
    exit (0);
-#endif /* MEMORY */
 }
+#endif /* SWAP || READFILE */
 #endif /* PLAIN && MEMORY */
 /* ENDPRIVATE */
 
@@ -2151,9 +2184,9 @@ int gripe;
 #endif
 #else
 #ifdef __STDC__
-int find_word (int *type, int *refno, int *tadr, int which_arg)
+void find_word (int *type, int *refno, int *tadr, int which_arg)
 #else
-int find_word (type, refno, tadr, which_arg)
+void find_word (type, refno, tadr, which_arg)
 int *type;
 int *refno;
 int *tadr;
@@ -2516,13 +2549,6 @@ void parse ()
       tindex++;
    }
    tp [tindex] = NULL;
-#ifdef DEBUG
-   for (sep = 0; sep < tindex; sep++)
-      printf ("+++ i %d, sep '%c', token '%s'\n", sep, 
-      separator[sep] == '\n' ? 'N' : separator[sep], tp[sep]);
-   printf ("+++ i %d, sep '%c', token NULL\n", tindex, 
-      separator[tindex] == '\n' ? 'N' : separator[sep]);
-#endif /* DEBUG */
    return;      
 }
 
@@ -2537,7 +2563,6 @@ int textref;
    int refno;
    int tadr;
    int continuation;
-   char *wp;
 
    if (value[STATUS] == -1 && value [ARG3] == -1)
    {
@@ -2961,6 +2986,48 @@ char *save_name;
 }
 
 #ifdef __STDC__
+int check_version (FILE *infile)
+#else
+int check_version (infile)
+FILE *infile;
+#endif
+{
+   int valg = 0;
+   int valt = 0;
+   char *gptr = GAMEID;
+   char tchr = fgetc (infile);
+   
+   while (1)
+   {
+      if (*gptr == '\0' && tchr == '\n') return (0);
+      if (tchr != *gptr) return (1);
+      if (tchr == ' ') 
+      {
+         while (*gptr == ' ') gptr++;
+         while (tchr == ' ') tchr = fgetc (infile);
+         break;
+      }
+      gptr++;
+      tchr = fgetc (infile);
+   }
+   while (isdigit (*gptr) || *gptr == '.')
+   {
+      if (*gptr == '.') valg *= 100;
+      else              valg = 10 * valg + *gptr - '0';
+      gptr++;
+   }
+   while (isdigit (tchr) || tchr == '.')
+   {
+      if (tchr == '.') valt *= 100;
+      else              valt = 10 * valt + tchr - '0';
+      tchr = fgetc (infile);
+   }
+   if (valg < valt) return (1);
+   while (tchr != '\n') tchr = fgetc (infile);
+   return (0);
+}
+
+#ifdef __STDC__
 void close_files (void)
 #else
 void close_files ()
@@ -2982,6 +3049,7 @@ void close_files ()
    if (word_buf) free (word_buf);
 #endif
 }
+
 #ifdef __STDC__
 int special (int key, int *var)
 #else
@@ -3004,7 +3072,6 @@ int *var;
    int cnt;
    static int saved_value;
    static int game_time;
-   struct stat statbuf;
    void adv_hours ();
    void adv_news ();
 
@@ -3178,15 +3245,12 @@ restore_it:
             strncpy (qargw2, arg2_word, 20);
          }
 #endif
+         if (check_version (game_file) != 0)
+         {
+            *var = 2;
+            return (0);
+         }
          val1 = 0;
-         cptr = GAMEID;
-         while (*cptr)
-            if (*cptr++ != fgetc (game_file))
-            {
-               printf ("Version mismatch!\n");
-               exit (0);
-            }
-         (void) fgetc (game_file);         /* Skip \n */
          (void) fread (&val, sizeof (int), 1, game_file);
 #ifdef DEBUG
          printf ("FOBJECT: image %3d, expected %3d\n", val, FOBJECT);
@@ -3276,7 +3340,7 @@ restore_it:
          (void) fclose (game_file);
          chksum = 0;
          CHKSUM(tval, sizeof(tval))
-         CHKSUM(value, (val) * sizeof(value[0]))
+         CHKSUM(value, (int)(val * sizeof(value[0])))
          CHKSUM(location, sizeof(location))
          CHKSUM(objbits, sizeof(objbits))
          CHKSUM(placebits, sizeof(placebits))
@@ -3432,7 +3496,7 @@ restore_it:
          UNSTASH (image_ptr, placebits, sizeof (placebits));
          UNSTASH (image_ptr, varbits, sizeof (varbits));
          *var = 0;
-         return (0);
+         longjmp (loop_back, 1);
          
       case 19:    /* Fiddle justification */
          val = *var;
@@ -3586,9 +3650,10 @@ restore_it:
 
 #ifdef USEDB
 #ifdef __STDC__
-void create_db (void)
+void create_db (char *dbfile)
 #else
-void create_db ()
+void create_db (dbfile)
+char *dbfile;
 #endif
 {
    FILE *db_file;
@@ -3597,7 +3662,7 @@ void create_db ()
    int bytes = 0;
    int sgn = 0;
    
-   if ((db_file = fopen (DBNAME, WMODE)) == NULL)
+   if ((db_file = fopen (dbfile, WMODE)) == NULL)
       return;
    while (fgetc (text_file) != '{')
       if (feof (text_file))
@@ -3627,10 +3692,10 @@ void create_db ()
       if (ch == '}')
          break;
    }
+   fclose (db_file);
    if (bytes != TEXT_BYTES)
       return;
-   printf ("Database %s created.\n", DBNAME);
-   exit (0);
+   printf ("\n(Database %s created...)\n", DBNAME);
 }
 #endif /* USEDB */
 
@@ -3642,6 +3707,9 @@ int initialise ()
 {
 #ifdef MEMORY
    int text_bytes;
+#endif
+#ifdef READFILE
+   char text [100];
 #endif
    int index;
    int len;
@@ -3664,7 +3732,7 @@ int initialise ()
    if (dump_name == NULL || *dump_name == '\0')
 #endif
    {
-      PRINTF ("\n[A-code kernel version 11.51; MLA, 04 Mar 2003]\n");
+      PRINTF ("\n[A-code kernel version 11.53; MLA, 24 Mar 2003]\n");
    }
    *data_file = '\0';
    if (SEP != '?')
@@ -3712,39 +3780,50 @@ int initialise ()
    if ((text_file = fopen (data_file, RMODE)) == NULL)
    {
       if (text_file = fopen ("adv6.h", RMODE))
-         (void) create_db ();
-      (void) printf ("Sorry, can't find the %s data file.\n", data_file);
-      close_files ();
-      exit (0);
+         (void) create_db (data_file);
+      else
+      {
+         (void) printf ("Sorry, can't find the %s data file.\n", data_file);
+         close_files ();
+         return (1);
+      }
+      if ((text_file = fopen (data_file, RMODE)) == NULL)
+      {
+         (void) printf ("Unable to find or construct the data file %s.\n",
+            data_file);
+         return (1);
+      }
    }
 #ifdef MEMORY
-/*   (void) printf ("\nInitialising the universe - please wait...\n"); */
    text_bytes = fread (text, sizeof (char), TEXT_BYTES+1, text_file);
    (void) clearerr (text_file);
    (void) fclose (text_file);
    if (text_bytes != TEXT_BYTES)
    {
-      (void) printf ("Wrong data file length!\n");
+      (void) printf ("Wrong data file length: expected %d, got %d.\n",
+         TEXT_BYTES, text_bytes);
       return (1);
    }
-#else /* not MEMORY */
-/*   (void) setbuf (text_file, NULL);  */
+#endif /* MEMORY */
 #ifdef SWAP
    chunk_end [0] = fread (text, sizeof (char), TEXT_CHUNK, text_file) - 1;
    chunk_start [0] = 0;
-#else /* not SWAP */
-   chunk_end = fread (text, sizeof (char), TEXT_CHUNK, text_file) - 1;
-   chunk_start = 0;
 #endif /* SWAP */
-#endif /* MEMORY */
+#ifdef READFILE
+   (void) fread (text, sizeof (char), sizeof (text), text_file);
+#endif /* READFILE */
 #endif /* USEDB */
 
    virgin = *text;
+#ifdef PLAIN
+   strcpy (title, text + 1);
+#else
    title [0] = text [1] ^ KNOT;
    titlen = 0;
    while (++titlen < 80)
-      if ((title [titlen] = title [titlen - 1] ^ text [titlen + 1]) == '\0')
+      if ((title [titlen] = text [titlen] ^ text [titlen + 1]) == '\0')
          break;
+#endif /* PLAIN */
    
    if (strcmp (title, GAMEID) != 0)
    {
@@ -3964,6 +4043,7 @@ char **argv;
             printf ("    -w                invert default wrap/justify setting\n");
             printf ("    -b                invert default setting for blank lines around prompt\n");
             printf ("    -s <W>x<H>[-<M>]  set screen size and margin\n");
+            printf ("    -p                invert default setting for pause before exiting\n");
 #endif /* GLK */
 #ifdef USEDB
             printf ("    -d <dbsdir>       specify dbs directory\n");
@@ -3971,7 +4051,6 @@ char **argv;
             printf ("   [-r] <dumpfile>    restore game from dump\n");
             printf ("    -c <cominfile>    replay game from log\n");
             printf ("    -l <logfile>      log the game\n");
-            printf ("    -p                invert defaul setting for pause before exiting\n");
             printf ("    -h                print this usage summary\n");
             exit (0);
          }
@@ -4076,6 +4155,7 @@ char **argv;
    {
       if (dump_name && *dump_name)
       {
+         p1();
          value [STATUS] = -1;
          value [ARG3] = -1;
          tindex = 1;
@@ -4096,6 +4176,7 @@ char **argv;
 #else
    if (dump_name && *dump_name)
    {
+      p1 ();
       value [STATUS] = -1;
       value [ARG3] = -1;
       strncpy (arg2_word, dump_name, WORDSIZE);
@@ -4177,7 +4258,7 @@ int l3;
 #ifdef __STDC__
 int isat (int l1,int l2,int l3, int l4)
 #else
-int ishere (l1,l2,l3,l4)
+int isat (l1,l2,l3,l4)
 int l1;
 int l2;
 int l3;
@@ -4196,7 +4277,7 @@ int l4;
    }
    if (location [l1] == l4) return (1);
 #ifdef SCHIZOID
-   if (!(bitest (l1, SCHIZOID))) return (0);
+   if (l4 == INHAND || !(bitest (l1, SCHIZOID))) return (0);
    if (location [l1] + 1 == l4) return (1);
 #endif
    return (0);
@@ -4462,7 +4543,7 @@ void finita (void)
 void finita ()
 #endif
 {
-#ifndef MEMORY
+#if !defined(MEMORY) && !defined(PRELOADED)
    (void) fclose (text_file);
 #endif /* MEMORY */
 #ifdef LOC_STATS
@@ -4543,7 +4624,7 @@ char a1;
 int a2;
 int a3;
 int *a4;
-short *a5
+short *a5;
 #endif
 {
 /* a0 locals
@@ -4618,7 +4699,7 @@ int lbitest (a1, a2, a3, a4)
 int a1;
 int a2;
 int *a3;
-short *a4
+short *a4;
 #endif
 {
    short *bitadr;
