@@ -1,4 +1,4 @@
-/* advkern.h - copyleft @ Mike Arnautov 1990-2002. */
+/* advkern.h - copyleft @ Mike Arnautov 1990-2003. */
 
 #include <stdio.h>
 #include <setjmp.h>

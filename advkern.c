@@ -1,6 +1,7 @@
 /* advkern.c (adventure) - copyleft Mike Arnautov 1990-2003.
  *
- * 07 Jan 03   MLA        Sigh... Hacked in adv770-specific desert stuff.
+ * 26 Jan 03   MLA        bug: avoid looping in INITs even if code QUITs there.
+ * 24 Jan 03   MLA        BUG: BADWORD etc do *not* suppress amatch!
  * 06 Jan 03   MLA        BUG: Fixed varbits[] handling!
  * 04 Jan 03   MLA        Bug: fixed the typo reporting code.
  *                        Also added case 31 of special().
@@ -327,7 +328,7 @@ int amatch = 1;
 #else
    int compress = 0;
 #endif
-#if defined(PAUSE) || defined(MSDOS) || defined(_WIN32)
+#if defined(PAUSE) || defined(MSDOS) || defined(_WIN32) || defined (GLK)
    int end_pause = 1;
 #else
    int end_pause = 0;
@@ -903,6 +904,7 @@ void word_update ()
 
 #define MAX_BREAKS 100
 
+/* PRIVATE */
 #if defined(PLAIN) && defined(MEMORY)
 #  define get_char(X) text[X]
 #else /* !PLAIN || !MEMORY */
@@ -1025,6 +1027,7 @@ void file_oops ()
 #endif /* MEMORY */
 }
 #endif /* PLAIN && MEMORY */
+/* ENDPRIVATE */
 
 #ifdef __STDC__
 void voc (int word, int what, int test, int vtext)
@@ -2454,7 +2457,7 @@ int textref;
    char *wp;
    int typo = 0;
 
-   if (value [STATUS] < 90)
+   if (value [STATUS] < 90 || value [STATUS] >= LTEXT)
       amatch = 1;
    else if (value [STATUS] == 99)
       amatch = 0;
@@ -2967,18 +2970,6 @@ int *var;
    struct stat statbuf;
    void adv_hours ();
    void adv_news ();
-
-#if STYLE == 11
-/* Adv770 stuff */
-   static int dune_count = 0;
-   int dune_mask;
-   int dune_countdown;
-   int dune;
-   static int dune_offset;
-   static int dunes [24];
-   static char *dune_dir [] =
-      { "north", "NE", "east", "SE", "south", "SW", "west", "NW" };
-#endif /* STYLE == 11 */
 
    switch (key)
    {
@@ -3580,45 +3571,6 @@ restore_it:
             strncpy (arg2_word, tp [tindex - 1], WORDSIZE);
 #endif
          return (0);
-
-#if STYLE == 11
-/* This is for adv770 only! */
-      case 770:
-         dune_offset = *var;
-         return (0);
-
-      case 771:
-         dune_mask = *var;
-         dunes [dune_offset] = dune_mask;
-         return (0);
-         
-      case 772:
-         dune_count = 0;
-         dune_mask = 1;
-         dune = *var;
-         for (cnt = 0; cnt < 8; cnt++, dune_mask <<= 1)
-            if (dunes [dune] & dune_mask) dune_count++;
-         *var = dune_count;
-         return (0);
-        
-      case 773:
-         dune = *var;
-         dune_mask = 1;
-         dune_countdown = dune_count;
-         for (cnt = 0; dune < 8 && dune_countdown; 
-            cnt++, dune_mask <<= 1, dune_countdown--)
-         {
-            if (dunes [dune] & dune_mask)
-            {
-               PRINTF (dune_dir [cnt])
-               if (dune_countdown > 1)
-                  PRINTF (", ")
-               else if (dune_countdown == 1 && dune_count > 1)
-                  PRINTF (" and ")
-            }
-         }
-         return (0);
-#endif /* STYLE == 11 */
          
       default:
          PRINTF2 ("\n \nGLITCH! Bad special code: %d\n", key);
@@ -3656,7 +3608,7 @@ int initialise ()
    if (dump_name == NULL || *dump_name == '\0')
 #endif
    {
-      PRINTF ("\n[A-code kernel version 11.45; MLA, 04 Jan 2003]\n");
+      PRINTF ("\n[A-code kernel version 11.46; MLA, 24 Jan 2003]\n");
    }
    *data_file = '\0';
    if (SEP != '?')
@@ -3785,7 +3737,8 @@ int argc = 0;
 char **argv = NULL;
 
 #ifdef _WIN32
-#include "WinGlk.h"
+#include <windows.h>
+/* #include "WinGlk.h" */
 char* arglist[1] = { "" };
 
 int winglk_startup_code(const char* cmdline)
@@ -3823,6 +3776,25 @@ int winglk_startup_code(const char* cmdline)
    argc = 1;
    argv = arglist;
    return 1;
+}
+/* Entry point for all Glk applications */
+int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow)
+{
+  /* Attempt to initialise Glk */
+  if (InitGlk(0x00000601) == 0)
+    exit(0);
+
+  /* Call the Windows specific initialization routine */
+  if (winglk_startup_code(lpCmdLine) != 0)
+  {
+    /* Run the application */
+    glk_main();
+
+    /* There is no return from this routine */
+    glk_exit();
+  }
+
+  return 0;
 }
 #endif
 #if defined(unix) || defined(linux)
@@ -4027,6 +3999,11 @@ char **argv;
 #endif
    }
 
+#ifdef GLK
+   glk_stylehint_set (wintype_TextBuffer, style_Normal, 
+      stylehint_Justification, stylehint_just_LeftFlush);
+   glk_set_style (style_Normal);
+#endif
    value [THERE] = value [HERE] = FPLACE;
 
 #ifdef CONTEXT
@@ -4054,8 +4031,8 @@ char **argv;
       }
       else     
       {
-         (void) setjmp (loop_back);
-         p1 ();
+         if (setjmp (loop_back) == 0)
+            p1 ();
       }
    }
 #else
@@ -4071,19 +4048,26 @@ char **argv;
    }
    else
    {
-      (void) setjmp (loop_back);
-      p1 ();
+      tindex = 0;
+      tp [0] = NULL;
+      if (setjmp (loop_back) == 0)
+         p1 ();
    }
 #endif /* CONTEXT */
 
    (void) setjmp (loop_back);
+
    if (quitting) 
    {
       if (end_pause)
       {
          PRINTF ("(To exit, press ENTER)");
+#ifdef GLK
+         outbuf (1);
+#else         
          getinput (comline, 160);
          putchar ('\n');
+#endif
       }
       else
       {
