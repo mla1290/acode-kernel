@@ -1,5 +1,7 @@
 /* adv00.c: A-code kernel - copyleft Mike Arnautov 1990-2004.
  *
+ * 16 Feb 04   MLA        G++ didn't like initialisation of fname in memstore().
+ *                        Bug: Initialise rseed before calling p1()!
  * 12 Feb 04   MLA        Reused exec 12.
  * 06 Feb 04   MLA        Flag pseudo-objects on entry.
  * 07 Jan 04   MLA        Split memstore() off special(). Reused exec 28.
@@ -194,7 +196,7 @@
  *
  */
 
-#define KVERSION "11.67; MLA, 11 Feb 2004"
+#define KVERSION "11.68; MLA, 16 Feb 2004"
 
 #include "adv1.h"
 
@@ -3197,7 +3199,7 @@ int key;
    static char *image_base = NULL;   /* True memory save area */
    static char *image_temp = NULL;   /* Temp save over restore area */
    char *image_ptr;
-   char *fname = key < 2 ? ".M.adv" : ".T.adv";
+   char *fname = (char *)(key < 2 ? ".M.adv" : ".T.adv");
    int result = 1;
    int val = sizeof (value) + sizeof (location) +
              sizeof (objbits) + sizeof (placebits) + sizeof (varbits);
@@ -4341,7 +4343,8 @@ char **argv;
 #endif
    if (mainseed == 0)
       (void) time ((time_t *) &mainseed);
-   mainseed %= 32768L;
+   rseed = mainseed %= 32768L;
+   (void) irand (1);
    
    if (initialise () != 0)
    {
