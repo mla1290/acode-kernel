@@ -1,5 +1,7 @@
 /* adv00.c: A-code kernel - copyleft Mike Arnautov 1990-2003.
  *
+ * 16 Nov 03   MLA        Bug: check for bad syntax before skipping rest
+ *                        of command!
  * 11 Oct 03   MLA        Allow for TYPO not being declared in style >= 11.
  * 23 Sep 03   MLA        BUG: don't zap tokens in find_word, if no matching!
  *                        bug: don't convert _ into blank on input.
@@ -111,7 +113,7 @@
  * 16 Apr 01   MLA        Fixed zapping save file on initial restore.
  * 30 Mar 01   MLA        Added typo reporting
  * 25 Mar 01   MLA        Added scenery word matching.
- * 15 Mar 01   MLA        Added readline (but it don't work!).
+ * 15 Mar 01   MLA        Added readline.
  * 14 Mar 01   MLA        Added approximate matching.
  * 28 Feb 01   MLA        Allowed assigned text type. Added in-text
  *                        dwarvish tag. Added tied text type.
@@ -180,12 +182,11 @@
  *                        'isnear' to avoid MSC clashes.
  * 17 Nov 90   MLA        Introduced NOVARARGS compilation symbol
  *                        to cope with a nasty Ultrix compiler.
- * 15 Sep 90   MLA        Initial 
- coding.
+ * 15 Sep 90   MLA        Initial coding.
  *
  */
 
-#define KVERSION "11.63; MLA, 11 Oct 2003"
+#define KVERSION "11.64; MLA, 16 Nov 2003"
 
 #include "adv1.h"
 
@@ -2995,11 +2996,11 @@ got_command:
             separator [++tindex] = ',';
       else
       {
-         while (separator [++tindex] == ' ');
 #if STYLE >= 11
          if (value [STATUS] > 1 && 
             (separator [tindex] == ' ' || separator [tindex] == ','))
-            value [STATUS] = BADSYNTAX;
+               value [STATUS] = BADSYNTAX;
+         while (separator [++tindex] == ' ');
       }
    }
 #ifdef AGAIN
@@ -3012,16 +3013,17 @@ got_command:
    if (value [STATUS] == BADSYNTAX || value [ARG1] > STATUS || 
        value [ARG2] > STATUS)       /* Bad command! Ignore rest of line */
           tp [tindex + 1] = NULL;
-#else
+#else /* STYLE < 11 */
+         while (separator [++tindex] == ' ');
       }
    }
-#endif
+#endif /* STYLE */
    if (value [STATUS] == 1)
       value [ARG2] = -1;
 #if STYLE >= 11
    else if (value [STATUS] == BADSYNTAX)
    {
-      value [ARG1] = -1;
+/*      value [ARG1] = -1; */
       value [ARG2] = -1;
    }
 #endif
