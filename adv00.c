@@ -1,5 +1,6 @@
 /* adv00.c: A-code kernel - copyleft Mike Arnautov 1990-2004.
  *
+ * 12 Feb 04   MLA        Reused exec 12.
  * 06 Feb 04   MLA        Flag pseudo-objects on entry.
  * 07 Jan 04   MLA        Split memstore() off special(). Reused exec 28.
  *                        Added exec 33.
@@ -193,7 +194,7 @@
  *
  */
 
-#define KVERSION "11.66; MLA, 06 Feb 2004"
+#define KVERSION "11.67; MLA, 11 Feb 2004"
 
 #include "adv1.h"
 
@@ -3636,7 +3637,9 @@ restore_it:
          strncpy (arg2_word, arg1_word, 20);
          value [STATUS] = 2;
          return (0);
-      case 12:         /* Spare */
+      case 12:         /* Check for end of command */
+         *var = (tp[tindex] == NULL);
+         return (0);
       case 13:         /* Spare */
          *var = 0;
          return (0);
