@@ -1,7 +1,8 @@
 /* adv00.c: A-code kernel - copyleft Mike Arnautov 1990-2004.
  */
-#define KVERSION "11.76; MLA, 05 Dec 2004"
+#define KVERSION "11.77; MLA, 22 Dec 2004"
 /*
+ * 22 Dec 04   MLA        bug: PRINTF2 has to be braced -- it's compound!
  * 05 Dec 04   MLA        Bug: Verbatim glitch.
  * 19 Aug 04   MLA        Replaced special(31) with verbatim().
  * 08 Aug 04   MLA        bug: Force logfile in CGI mode.
@@ -5098,7 +5099,9 @@ int arg;
    else if (arg == ARG2 && value [STATUS] == 2)
       strncpy (arg2_word, tp [tindex - 1], WORDSIZE);
    else if (arg != ARG2)
+   {
       (void) PRINTF2 ("GLITCH! Bad ARGn indicator: %d\n", arg);
+   }
 }
 
 #ifdef __STDC__
