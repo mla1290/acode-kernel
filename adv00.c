@@ -1,5 +1,11 @@
 /* adv00.c: A-code kernel - copyleft Mike Arnautov 1990-2003.
  *
+ * 07 Jan 04   MLA        Split memstore() off special(). Reused exec 28.
+ *                        Added exec 33.
+ * 06 Jan 04   MLA        Exec 30 reused to strip off trailing LF.
+ * 02 Jan 04   MLA        Exec 9/10 now also fake the arg word.
+ * 30 Dec 03   MLA        Bug: Fixed termination of ALL loops.
+ * 09 Dec 03   MLA        Bug: Fixed BLOCK_END handling in outbuf().
  * 16 Nov 03   MLA        Bug: check for bad syntax before skipping rest
  *                        of command!
  * 11 Oct 03   MLA        Allow for TYPO not being declared in style >= 11.
@@ -24,7 +30,7 @@
  * 24 Mar 03   MLA        BUG: no SCHIZOID behaviour for INHAND in isat().
  * 22 Mar 03   MLA        BUG: run p1() when restoring from command line!
  * 20 Mar 03   MLA        Intelligent version checks on restore,
- * 09 Mar 03   S. Munro   bug: Remove some redundant declaration.
+ * 09 Mar 03   S. Munro   bug: Remove some redundant declarations.
  *                        Work around an MS oddity in using CHKSUM.
  *             MLA        Default to SWAP.
  * 08 Mar 03   S. Munro   Bug: Fix several non-ANSI declaration.
@@ -186,7 +192,7 @@
  *
  */
 
-#define KVERSION "11.64; MLA, 16 Nov 2003"
+#define KVERSION "11.65; MLA, 02 Jan 2004"
 
 #include "adv1.h"
 
@@ -1283,45 +1289,45 @@ int terminate;
    int ignore_eol = 0;
    char lastchar = '\0';
    char text_char;
+   int frag;
    
    eol_count = 0;
-
-   while (*(lptr - 1) == ' ')
+   frag = 1;
+ 
+   lptr--;  
+   while (*lptr == ' ' || *lptr == '\n')
    {
+      if (*lptr == '\n')
+         frag = 0;
       lptr--;
       text_len--;
    }
-   *lptr = '\0';
-   if (*(lptr - 1) == '\n')
+#ifdef BLOCK_END
+   if (*lptr == BLOCK_END && *(lptr - 1) == '\n')
+      frag = -1;
+#endif /* BLOCK_END */
+   lptr++;
+   
+   if (frag <= 0)
    {
-      while (*(lptr - 1) == '\n')
-      {
-         lptr--;
-         text_len--;
-      }
       if (! terminate)
       {      
 #if STYLE > 1
-#ifdef BLOCK_END
-/*         if (!compress && *(lptr - 1) != BLOCK_END) */
-         if (!compress)
-#else
-         if (!compress)
-#endif /* BLOCK_END */
+         if (!compress && frag == 0)
          {
             PRINTF ("\n ");
          }
 #endif /* STYLE */
-         PRINTF ("\n? ")
+            PRINTF ("\n? ")
       }
    }
-
-   if (*(lptr - 1) != ' ')
+   else
    {
       *lptr++ = ' ';
       text_len++;
    }
-      
+   *lptr = '\0';
+
    if (*tptr == '\n')
    {
       while (*tptr == '\n')
@@ -1330,7 +1336,6 @@ int terminate;
          tptr--;
    }
       
-   *lptr = '\0';
    lptr = tptr;
    break_point = 0;
    break_count = -1;
@@ -2073,6 +2078,8 @@ int refno;
          return;
       }
    }
+   strcpy (which_arg == 1 ? arg1_word : arg2_word, "*GLITCH*");
+   return;
 }
 
 #ifdef __STDC__
@@ -3000,7 +3007,8 @@ got_command:
          if (value [STATUS] > 1 && 
             (separator [tindex] == ' ' || separator [tindex] == ','))
                value [STATUS] = BADSYNTAX;
-         while (separator [++tindex] == ' ');
+         if (tp [tindex])
+            while (separator [++tindex] == ' ');
       }
    }
 #ifdef AGAIN
@@ -3171,6 +3179,108 @@ void close_files ()
 }
 
 #ifdef __STDC__
+int memstore (int key)
+#else
+int memstore (key)
+int key;
+#endif
+{
+/* Key -1  check for existence of memory image
+ * Key 0   true memory save
+ * Key 1   true memory restore
+ * Key 2   temporary memory save
+ * Key 3   temporary memory restore
+ */
+   FILE *memory_file = NULL;
+   static char *image_base = NULL;   /* True memory save area */
+   static char *image_temp = NULL;   /* Temp save over restore area */
+   char *image_ptr;
+   char *fname = key < 2 ? ".M.adv" : ".T.adv";
+   int result = 1;
+   int val = sizeof (value) + sizeof (location) +
+             sizeof (objbits) + sizeof (placebits) + sizeof (varbits);
+
+   if (key < 0)
+   {
+#ifdef CONTEXT
+      if (cgi)
+      {
+         if ((memory_file = fopen (fname, RMODE)) != NULL)
+         {
+            fclose (memory_file);
+            result = 1;
+         }
+         return (result);
+      }
+#endif
+      return (image_base ? 0 : 1);
+   }
+
+   image_ptr = key < 2 ? image_base : image_temp;
+   if (key == 0 || key == 2)
+   {
+      if (image_ptr == NULL)
+      {
+         image_ptr = (char *) malloc (val);
+         if (image_ptr == NULL)
+            return (1);
+         if (key == 0)
+            image_base = image_ptr;
+         else
+            image_temp = image_ptr;
+      }
+         
+#define STASH(X,Y,Z) memcpy (X,Y,Z); X += Z
+      STASH (image_ptr, value, sizeof (value));
+      STASH (image_ptr, location, sizeof (location));
+      STASH (image_ptr, objbits, sizeof (objbits));
+      STASH (image_ptr, placebits, sizeof (placebits));
+      STASH (image_ptr, varbits, sizeof (varbits));
+#ifdef CONTEXT
+      if (cgi)
+      {
+         if ((memory_file = fopen (fname, WMODE)) != NULL &&
+            fwrite (image_base, sizeof (char), val, memory_file) == val)
+               result = 0;
+         if (memory_file)
+            fclose (memory_file);
+         return (result);
+      }
+#endif
+      return (0);
+   }
+   else
+   {
+#ifdef CONTEXT
+      if (cgi)
+      {
+         if ((image_ptr = (char *) malloc (val)) != NULL &&
+             (memory_file = fopen (fname, RMODE)) != NULL &&
+             (fread (image_ptr, sizeof (char), val, memory_file)) == val)
+                result = 0;
+         if (memory_file)
+            fclose (memory_file);
+         if (result)
+            return (1);
+      }
+      else if (image_ptr  == NULL)
+         return (1);
+#else
+      if (image_ptr  == NULL)
+         return (1);
+#endif /* CONTEXT */
+
+#define UNSTASH(X,Y,Z) memcpy (Y,X,Z); X += Z
+      UNSTASH (image_ptr, value, sizeof (value));
+      UNSTASH (image_ptr, location, sizeof (location));
+      UNSTASH (image_ptr, objbits, sizeof (objbits));
+      UNSTASH (image_ptr, placebits, sizeof (placebits));
+      UNSTASH (image_ptr, varbits, sizeof (varbits));
+      return (0);
+   }
+}
+
+#ifdef __STDC__
 int special (int key, int *var)
 #else
 int special (key, var)
@@ -3179,8 +3289,7 @@ int *var;
 #endif
 {
    static char save_name [32];
-   static char *image_base = NULL;
-   static char *image_temp = NULL;
+   static char *scratch;
    char *image_ptr;
    char file_name [20];
    FILE *game_file;
@@ -3397,19 +3506,22 @@ restore_it:
          chksav = 0;
          val = sizeof (value) + sizeof (location) +
                sizeof (objbits) + sizeof (placebits) + sizeof (varbits);
-         if (image_temp == NULL)
+         *var = memstore (2);
+         if (*var != 0)
+            return (0);
+         if (scratch == NULL)
          {
-            image_temp = (char *) malloc (val);
-            if (image_temp == NULL)
+            scratch = (char *) malloc (val);
+            if (scratch == NULL)
                return (0);
          }
-         image_ptr = image_temp;
+         image_ptr = scratch;
 #ifdef DEBUG
          puts ("Reading image...");
 #endif
          (void) fread (&chksav, sizeof (int), 1, game_file);
          (void) fread (tval, 1, sizeof (tval), game_file);
-         (void) fread (image_temp, sizeof (int), ltext, game_file);
+         (void) fread (scratch, sizeof (int), ltext, game_file);
          (void) fread (location, sizeof (int), 
             sizeof (location) / sizeof (int), game_file);
          (void) fread (objbits, sizeof (short), 
@@ -3455,7 +3567,7 @@ restore_it:
          (void) fclose (game_file);
          chksum = 0;
          CHKSUM(tval, sizeof(tval))
-         CHKSUM(image_temp, (int)(ltext * sizeof(value[0])))
+         CHKSUM(scratch, (int)(ltext * sizeof(value[0])))
          CHKSUM(location, sizeof(location))
          CHKSUM(objbits, (lobj - FOBJECT + 1) * OBJSIZE * sizeof(objbits[0]))
          CHKSUM(placebits, (lplace - lobj) * PLACESIZE * sizeof(placebits[0]))
@@ -3476,14 +3588,14 @@ restore_it:
             return (0);
          }
          memcpy (&game_time, tval, sizeof (int));
-         memcpy (value, image_temp, (lobj + 1) * sizeof (int));
-         memcpy (value + FPLACE, (int *)image_temp + lobj + 1, 
+         memcpy (value, scratch, (lobj + 1) * sizeof (int));
+         memcpy (value + FPLACE, (int *)scratch + lobj + 1, 
             (lplace - lobj) * sizeof (int));
-         memcpy (value + FVERB, (int *)image_temp + lplace + 1, 
+         memcpy (value + FVERB, (int *)scratch + lplace + 1, 
             (lverb - lplace) * sizeof (int));
-         memcpy (value + FVARIABLE, (int *)image_temp + lverb + 1,
+         memcpy (value + FVARIABLE, (int *)scratch + lverb + 1,
             (lvar - lverb - 1) * sizeof (int));
-         memcpy (value + FTEXT, (int *)image_temp + lvar,
+         memcpy (value + FTEXT, (int *)scratch + lvar,
             (ltext - lvar + 1) * sizeof (int));
 #ifdef CONTEXT
          if (key == 997) value [CONTEXT] = 2;
@@ -3511,8 +3623,12 @@ restore_it:
          *var = 1 + (lval - game_time) / 60;      /* Be generous! */
          return (0);
       case 9:         /* Fudge a value into ARG1 */
+         value [ARG1] = *var;
+         fake (1, *var);
+         return (0);
       case 10:        /* Fudge a value into ARG2 */
-         value [(key == 9) ? ARG1 : ARG2] = *var;
+         value [ARG2] = *var;
+         fake (2, *var);
          return (0);
       case 11:         /* Pretend player said "X X" instead of "X" */
          value [ARG2] = value [ARG1];
@@ -3520,8 +3636,6 @@ restore_it:
          value [STATUS] = 2;
          return (0);
       case 12:         /* Spare */
-         *var = 0;
-         return (0);
       case 13:         /* Spare */
          *var = 0;
          return (0);
@@ -3559,67 +3673,11 @@ restore_it:
          *var = 1;
          return (0);
       case 17:    /* Memory save */
-         *var = 1;
-         val = sizeof (value) + sizeof (location) +
-               sizeof (objbits) + sizeof (placebits) + sizeof (varbits);
-         if (image_base == NULL)
-         {
-            image_base = (char *) malloc (val);
-            if (image_base == NULL)
-               return (0);
-         }
-         image_ptr = image_base;
-#define STASH(X,Y,Z) memcpy (X,Y,Z); X += Z
-         STASH (image_ptr, value, sizeof (value));
-         STASH (image_ptr, location, sizeof (location));
-         STASH (image_ptr, objbits, sizeof (objbits));
-         STASH (image_ptr, placebits, sizeof (placebits));
-         STASH (image_ptr, varbits, sizeof (varbits));
-#ifdef CONTEXT
-         if (cgi)
-         {
-            FILE *memory_file;
-            if ((memory_file = fopen (".M.adv", WMODE)) == NULL)
-               return (0);
-            if (fwrite (image_base, sizeof (char), val, memory_file) == val)
-               *var = 0;
-            fclose (memory_file);
-         }
-         else
-            *var= 0;
-#else
-         *var = 0;
-#endif
+         *var = memstore (0);
          return (0);
-      case 18:    /* Memory restore */
-         *var = 1;
-         val = sizeof (value) + sizeof (location) +
-               sizeof (objbits) + sizeof (placebits) + sizeof (varbits);
-#ifdef CONTEXT
-         if (cgi)
-         {
-            FILE *memory_file;
-            if ((image_base = (char *) malloc (val)) == NULL ||
-                (memory_file = fopen (".M.adv", RMODE)) == NULL ||
-                (fread (image_base, sizeof (char), val, memory_file)) != val)
-                   return (0);
-         }
-         else if (image_base  == NULL)
-            return (0);
-#else
-         if (image_base  == NULL)
-            return (0);
-#endif /* CONTEXT */
 
-         image_ptr = image_base;
-#define UNSTASH(X,Y,Z) memcpy (Y,X,Z); X += Z
-         UNSTASH (image_ptr, value, sizeof (value));
-         UNSTASH (image_ptr, location, sizeof (location));
-         UNSTASH (image_ptr, objbits, sizeof (objbits));
-         UNSTASH (image_ptr, placebits, sizeof (placebits));
-         UNSTASH (image_ptr, varbits, sizeof (varbits));
-         *var = 0;
-/*            longjmp (loop_back, 1); */
+      case 18:    /* Memory restore */
+         *var = memstore (1);
          return (0);
                
       case 19:    /* Fiddle justification */
@@ -3715,7 +3773,7 @@ restore_it:
          *var = value_all;
          return (0);
 
-      case 27:
+      case 27:    /* Pre say */
          *var = 1;
          if (*say_buf)
          {
@@ -3726,8 +3784,8 @@ restore_it:
          }
          return (0);
          
-      case 28:   /* Spare */
-         *var = 1;
+      case 28:   /* Recover from failed save */
+         *var = memstore (3);
          return (0);
          
       case 29:    /* Swap ARG1 and ARG2 */
@@ -3749,8 +3807,8 @@ restore_it:
          }
          return (0);
 
-      case 30:   /* Spare */
-         *var = 1;
+      case 30:   /* Convert last message output into a fragment */
+         if (*(lptr - 1) == '\n') lptr--;
          return (0);
          
       case 31:   /* Replace ARG2 with what user actually typed */
@@ -3780,6 +3838,14 @@ restore_it:
          *var = 0;
          return (0);
 
+      case 33:  /* Check for existence of a memory save */
+#if STYLE >= 11
+         *var = memstore (-1);
+#else
+         *var = 0;
+#endif
+         return (0);
+         
       default:
          PRINTF2 ("\n \nGLITCH! Bad special code: %d\n", key);
          return (1);
@@ -3988,12 +4054,15 @@ int initialise ()
    if (com_file)
    {
       fgets (comline, sizeof (comline), com_file);
-      if (strncmp (comline, GAMEID, strlen (GAMEID)) != 0)
+      if (strncmp (comline, "Wiz: ", 5) == 0)
+         mainseed = atol (comline + 5);
+      else if (strncmp (comline, GAMEID, strlen (GAMEID)) != 0)
       {
          printf ("%s: wrong adventure version!\n", com_name);
          exit (0);
       }
-      mainseed = atol (comline + strlen (GAMEID) + 1);
+      else
+         mainseed = atol (comline + strlen (GAMEID) + 1);
    }
 
    if (*log_name)
