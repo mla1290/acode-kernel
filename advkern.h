@@ -1,4 +1,4 @@
-/* adv0.h - copyleft @ Mike Arnautov 1990-2003. */
+/* adv0.h: A-code kernel - copyleft Mike Arnautov 1990-2003. */
 
 #include <stdio.h>
 #include <setjmp.h>

@@ -1,11 +1,15 @@
-/* advkern.c (adventure) - copyleft Mike Arnautov 1990-2003.
+/* advkern.c: A-code kernel - copyleft Mike Arnautov 1990-2003.
  *
+ * 04 Mar 03   MLA        Trap bad command-line restores.
+ *                        Re-do the handling of VARSION as GAMEID and DBNAME.
+ * 24 Feb 03   MLA        Bug: Fixed create_db sign handling.
+ *                        bug: Suppressed unnecessary "More?" prompts.
  * 23 Feb 03   MLA        Bug: Fixed CGI version handling.
  * 21 Feb 03   MLA        Rationalised use of database use or non-use.
  * 20 Feb 03   MLA        Merged database into executable.
  * 16 Feb 03   MLA        bug: several small command handling bugs.
  * 14 Feb 03   MLA        Bug: Fixed '-l -c name' handling in command args.
- * 09 Feb 03   MLA        Use F/LMAGIC and F/LDIR. Also use SAY.
+ * 09 Feb 03   MLA        Use F/LFULL and F/LDIR. Also use SAY.
  * 04 Feb 03   MLA        Bug: fix qualifying by ARG2. 
  *                        Also hacked in EXCEPT code.
  * 31 Jan 03   MLA        Virgin mode entirely file based -- no rapes! :-)
@@ -1922,7 +1926,7 @@ int fill;
    char lastchar;
    static int flip_flop = 1;
 
-   if (scrchk (0) != 0)
+   if (text_len - (lptr - text_buf) >= Maxlen && scrchk (0) != 0)
       return lptr;
    if (need = Margin)
       while (need--)
@@ -2535,6 +2539,11 @@ int textref;
    int continuation;
    char *wp;
 
+   if (value[STATUS] == -1 && value [ARG3] == -1)
+   {
+      printf ("\nSorry... This game does not support command line restore.\n\n");
+      exit (1);
+   }
    if (value [STATUS] < 90 || value [STATUS] >= LTEXT)
       amatch = 1;
    else if (value [STATUS] == 99)
@@ -2710,8 +2719,8 @@ get_arg2:
       if (amatch == 1)
          amatch = (value [ARG1] < FSPECIAL || value [ARG1] > LSPECIAL);
 #endif
-#if defined(FMAGIC) && defined (LMAGIC)
-      if (value [ARG1] > FMAGIC && value [ARG1] < LMAGIC)
+#if defined(FACT) && defined (LACT)
+      if (value [ARG1] > FACT && value [ARG1] < LACT)
       {
          separator [tindex] = ';';
          goto got_command;
@@ -3100,7 +3109,7 @@ try_again:
             return (1);
          }
          (void) time ((time_t *) &tval[0]);
-         (void) fprintf (game_file, "%s\n", VERSION);
+         (void) fprintf (game_file, "%s\n", GAMEID);
          val = FOBJECT;
          (void) fwrite (&val, sizeof (int), 1, game_file);
          val = LOBJECT;
@@ -3170,7 +3179,7 @@ restore_it:
          }
 #endif
          val1 = 0;
-         cptr = VERSION;
+         cptr = GAMEID;
          while (*cptr)
             if (*cptr++ != fgetc (game_file))
             {
@@ -3591,19 +3600,20 @@ void create_db ()
    if ((db_file = fopen (DBNAME, WMODE)) == NULL)
       return;
    while (fgetc (text_file) != '{')
-      if (ferror (text_file))
+      if (feof (text_file))
          return;
    while (1)
    {
       ch = fgetc (text_file);
-      if (ferror (text_file))
+      if (feof (text_file))
          return;
       if (isdigit (ch))
       {
-         sgn = 1;
+         if (sgn == 0)
+            sgn = 1;
          val = 10 * val + ch - '0';   
       }
-      else if (ch == '-' && sgn == 0 && val == 0)
+      else if (ch == '-' && sgn == 0)
          sgn = -1;
       else if (sgn)
       {
@@ -3654,7 +3664,7 @@ int initialise ()
    if (dump_name == NULL || *dump_name == '\0')
 #endif
    {
-      PRINTF ("\n[A-code kernel version 11.50; MLA, 21 Feb 2003]\n");
+      PRINTF ("\n[A-code kernel version 11.51; MLA, 04 Mar 2003]\n");
    }
    *data_file = '\0';
    if (SEP != '?')
@@ -3696,7 +3706,7 @@ int initialise ()
 #endif /* USEDB */
    }
 
-#ifdef DBNAME
+#ifdef USEDB
    (void) strcat (data_file, DBNAME);
 
    if ((text_file = fopen (data_file, RMODE)) == NULL)
@@ -3727,7 +3737,7 @@ int initialise ()
    chunk_start = 0;
 #endif /* SWAP */
 #endif /* MEMORY */
-#endif /* DBNAME */
+#endif /* USEDB */
 
    virgin = *text;
    title [0] = text [1] ^ KNOT;
@@ -3736,9 +3746,9 @@ int initialise ()
       if ((title [titlen] = title [titlen - 1] ^ text [titlen + 1]) == '\0')
          break;
    
-   if (strcmp (title, VERSION) != 0)
+   if (strcmp (title, GAMEID) != 0)
    {
-      printf ("  title '%s',\nversion '%s'\n", title, VERSION);
+      printf ("  title '%s',\nversion '%s'\n", title, GAMEID);
       (void) printf ("Version stamp mismatch!\n");
       return (1);
    }
@@ -3762,22 +3772,23 @@ int initialise ()
    if (com_file)
    {
       fgets (comline, sizeof (comline), com_file);
-      if (strncmp (comline, VERSION, strlen (VERSION)) != 0)
+      if (strncmp (comline, GAMEID, strlen (GAMEID)) != 0)
       {
-         printf ("%s: wrong adventure version!", com_name);
+         printf ("%s: wrong adventure version!\n", com_name);
          exit (0);
       }
-      mainseed = atol (comline + strlen (VERSION) + 1);
+      mainseed = atol (comline + strlen (GAMEID) + 1);
    }
 
    if (*log_name)
    {
       if ((log_file = fopen (log_name, "a+")) == NULL)
          (void) printf ("(Sorry, unable to open log file...)\n");
+      else 
 #ifdef CONTEXT
-      else if (cgi == 0 || cgi == 'x')
-         (void) fprintf (log_file, "%s: %lu\n", VERSION, mainseed);
-#endif
+      if (cgi == 0 || cgi == 'x')
+#endif /* CONTEXT */
+         (void) fprintf (log_file, "%s: %lu\n", GAMEID, mainseed);
    }
 
    return (0);
@@ -3796,13 +3807,13 @@ int winglk_startup_code(const char* cmdline)
 {
    char name[80];
    char *nptr = name;
-   char *cptr = VERSION;
+   char *cptr = GAMEID;
    
    while (isalnum (*cptr) && (nptr - name) < 78)
       *nptr++ = *cptr++;
    *nptr = '\0';
    winglk_app_set_name(name);
-   winglk_window_set_title(VERSION);
+   winglk_window_set_title(GAMEID);
    argc = 1;
    argv = arglist;
    return 1;
@@ -4066,6 +4077,7 @@ char **argv;
       if (dump_name && *dump_name)
       {
          value [STATUS] = -1;
+         value [ARG3] = -1;
          tindex = 1;
          tp[0] = dump_name;
          strncpy (arg2_word, dump_name, WORDSIZE);
@@ -4085,6 +4097,7 @@ char **argv;
    if (dump_name && *dump_name)
    {
       value [STATUS] = -1;
+      value [ARG3] = -1;
       strncpy (arg2_word, dump_name, WORDSIZE);
       *(arg2_word + WORDSIZE - 1) = '\0';
 /*      special (996, &value [STATUS]);
