@@ -1,5 +1,9 @@
 /* adv00.c: A-code kernel - copyleft Mike Arnautov 1990-2003.
  *
+ * 10 May 03   MLA        BUG: Fixed "drop treasure and <something>".
+ * 30 Apr 03   MLA        Bug: Strip off '\r' from MS line terminator.
+ * 08 Apr 03   MLA        bug: Initialise to zero values beyond end of
+ *                        values array in a restored game.
  * 01 Apr 03   MLA        BUG: fixed restore of incompatible versions.
  *                        Also, improved version checking.
  *                        Also changed -l to -log iff GLK.
@@ -1908,6 +1912,12 @@ int insize;
          {
             strncpy (inbuf, mybuf + 7, insize);
             printf (inbuf);
+            cptr = inbuf + strlen (inbuf) - 2;
+            if (*inbuf != '\n' && *cptr == '\r')
+            {
+               *cptr++ = '\n';
+               *cptr = '\0';
+            }
             break;
          }
       }
@@ -2593,6 +2603,8 @@ int textref;
    if (value_all)
    {
       default_to (2, location_all, type_all);
+      if (separator [tindex] == ',')
+         arg1 = value [ARG1];
       if (value_all)
          return;
    }
@@ -3349,6 +3361,9 @@ restore_it:
          CHKSUM(objbits, sizeof(objbits))
          CHKSUM(placebits, sizeof(placebits))
          CHKSUM(varbits, sizeof(varbits))
+         if (val < LTEXT)    /* In case we added some texts since then! */
+            while (val < LTEXT)
+               *(value + (val++)) = 0;
 #ifdef CONTEXT
          if (cgi && key == 999)
          {
@@ -3737,7 +3752,7 @@ int initialise ()
    if (dump_name == NULL || *dump_name == '\0')
 #endif
    {
-      PRINTF ("\n[A-code kernel version 11.54; MLA, 01 Apr 2003]\n");
+      PRINTF ("\n[A-code kernel version 11.56; MLA, 10 May 2003]\n");
    }
    *data_file = '\0';
    if (SEP != '?')
