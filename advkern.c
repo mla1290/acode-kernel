@@ -1,5 +1,10 @@
 /* advkern.c (adventure) - copyleft Mike Arnautov 1990-2003.
  *
+ * 14 Feb 03   MLA        Bug: Fixed '-l -c name' handling in command args.
+ * 09 Feb 03   MLA        Use F/LMAGIC and F/LDIR. Also use SAY.
+ * 04 Feb 03   MLA        Bug: fix qualifying by ARG2. 
+ *                        Also hacked in EXCEPT code.
+ * 31 Jan 03   MLA        Virgin mode entirely file based -- no rapes! :-)
  * 26 Jan 03   MLA        bug: avoid looping in INITs even if code QUITs there.
  * 24 Jan 03   MLA        BUG: BADWORD etc do *not* suppress amatch!
  * 06 Jan 03   MLA        BUG: Fixed varbits[] handling!
@@ -213,9 +218,10 @@ void shift_up();
 void shift_down();
 #endif
 #ifdef READLINE
-#  include <termcap.h>
-#  include <readline.h>
-#  include <history.h>
+#include <readline/readline.h>
+#include <readline/history.h>
+char *lbp;
+char *lbuf;
 #endif
 
 FILE *text_file;
@@ -254,6 +260,10 @@ char *dump_name = NULL;
 
 #ifdef GLK
 #  define putchar(X) glk_put_char(X)
+#else
+#  ifdef READLINE
+#     define putchar(X) *lbp++=X;
+#  endif
 #endif
 
 #define PUTCHAR(X)   putchar(X);  if (log_file) (void)fputc(X,log_file)
@@ -266,11 +276,11 @@ char *dump_name = NULL;
 #ifdef BLOCK_END
 #define PUTCHARA(X)  if (*X != BLOCK_END && *X != IGNORE_EOL) { \
                      if (log_file) (void)fputc(*X,log_file); \
-                     (void)putchar(*X++);} else X++
+                     putchar(*X++);} else X++
 #else
 #define PUTCHARA(X)  if (*X != IGNORE_EOL) { \
                      if (log_file) (void)fputc(*X,log_file); \
-                     (void)putchar(*X++);} else X++
+                     putchar(*X++);} else X++
 #endif /* BLOCK_END */
 
 void outbuf (int);
@@ -300,20 +310,21 @@ int *qcon = &qvals [4];
 char qwords [5 * WORDSIZE];
 char *arg1_word = qwords;
 char *arg2_word = qwords + WORDSIZE;
+char arg3_word [WORDSIZE];
 char *orphan_word = qwords + 2 * WORDSIZE;
 char *qargw1 = qwords + 3 * WORDSIZE;
 char *qargw2 = qwords + 4 * WORDSIZE;
 char temp_word [WORDSIZE];
 #if STYLE >= 11
-   #define ORG1 -1
-   #define ORG2 -2
-   char orig1 [WORDSIZE];
-   char orig2 [WORDSIZE];
-   long ovoc1, ovoc2;
-   int olen1, olen2;
-#endif
-long rseed;
-long mainseed = 0;
+#  define ORIG -1
+   char orig [WORDSIZE];
+#  if defined(ALL) && defined(EXCEPT)
+      int except_count;
+      int except [100];
+#  endif /* ALL and EXCEPT */
+#endif /* STYLE == 11 */
+int rseed;
+int mainseed = 0;
 int amatch = 1;
 #ifdef DWARVEN
    int extra_dwarvish = 0;
@@ -343,7 +354,7 @@ int amatch = 1;
 #include "autod3.h"
 #include "autod4.h"
 #include "autod2.h"
-#include "autod0.h"
+#include "autod5.h"
 
 #ifdef AGAIN
    int fresh_line = 1;
@@ -367,13 +378,13 @@ int amatch = 1;
 #  endif /* MSDOS */
 #  ifdef BUFFERS
       char text [BUFFERS * TEXT_CHUNK];
-      long chunk_start [BUFFERS];
-      long chunk_end [BUFFERS];
-      long chunk_age [BUFFERS];
+      int chunk_start [BUFFERS];
+      int chunk_end [BUFFERS];
+      int chunk_age [BUFFERS];
 #  else /* not BUFFERS */
       char text [TEXT_CHUNK];
-      long chunk_start;
-      long chunk_end;
+      int chunk_start;
+      int chunk_end;
 #  endif /* BUFFERS */
 #endif /* MEMORY */
 
@@ -402,12 +413,12 @@ short tindex;
 #endif
 #endif
 short Maxlen;
-long ta;
-long locate_faults;
-long locate_demands;
+int ta;
+int locate_faults;
+int locate_demands;
 #ifdef LOC_STATS
-   long old_faults;
-   long old_demands;
+   int old_faults;
+   int old_demands;
 #endif /* LOC_STATS */
 char *text_buf;
 int text_buf_len = 4096;
@@ -429,12 +440,10 @@ int eol_count = 0;
 char *lp;
 
 #define PRINTF(X)    { char *ptr = X; while (*ptr) outchar(*ptr++); }
-/*                   strncpy(lptr,X,text_buf_len-(lptr-text_buf)); \
-                     text_len += strlen(X) */
 #define PRINTF1(X)   printf(X); if (log_file) (void)fprintf(log_file,X);
 #define PRINTF2(X,Y) printf(X,Y); if (log_file) (void)fprintf(log_file,X,Y);
 #define CHKSUM(X,Y)  for (cptr=(char *)X,cnt=1;cnt<=Y;cnt++,cptr++) \
-                     {chksum+=(*cptr+cnt)*(((long)(*cptr)+cnt)<<4)+Y; \
+                     {chksum+=(*cptr+cnt)*(((int)(*cptr)+cnt)<<4)+Y; \
                      chksum&=07777777777L;} 
 #ifdef GLK
 #  include "glk.h"
@@ -909,10 +918,10 @@ void word_update ()
 #  define get_char(X) text[X]
 #else /* !PLAIN || !MEMORY */
 #ifdef __STDC__
-char get_char (long char_addr)
+char get_char (int char_addr)
 #else
 char get_char (char_addr)
-long char_addr;
+int char_addr;
 #endif
 {
 #ifndef PLAIN
@@ -934,7 +943,7 @@ long char_addr;
    int index;
    char *buf_ptr;
    int oldest_chunk;
-   long new_addr;
+   int new_addr;
    void file_oops ();
    
    oldest_chunk = 0;
@@ -1358,7 +1367,7 @@ int terminate;
          }
          else if (!wrapped)
          {
-            (void) PUTCHAR ('\n');
+            PUTCHAR ('\n');
             lptr = tptr;
          }
          break_point = 0;
@@ -1389,7 +1398,7 @@ int terminate;
 /*            if (lptr == NULL) return; */
             break_point = 0;
             break_count = -1;
-            (void) PUTCHAR ('\n');
+            PUTCHAR ('\n');
             line_len = 0;
             tptr = lptr;
             wrapped = 1;
@@ -1411,7 +1420,7 @@ int terminate;
          {
             lptr = outline (lptr, break_point, break_count, 1);
 /*            if (lptr == NULL) return; */
-            (void) PUTCHAR ('\n');
+            PUTCHAR ('\n');
             wrapped = 1;
          }
          last_char = '\0';
@@ -1435,10 +1444,10 @@ int terminate;
 
 #ifdef NEST_TEXT
 #ifdef __STDC__
-void nested_say (long addr, int key, int type, int qualifier)
+void nested_say (int addr, int key, int type, int qualifier)
 #else
 void nested_say (addr, key, type, qualifier)
-long addr;
+int addr;
 int key;
 int type;
 int qualifier;
@@ -1485,8 +1494,8 @@ int qualifier;
    int given_qualifier;
    int given_key = key;
    char auxbuf [WORDSIZE];
-   long auxa;
-   long ea;
+   int auxa;
+   int ea;
    char *cp;
    char tc;
    char tl = 0;
@@ -1538,8 +1547,9 @@ int qualifier;
 
    given_qualifier = qualifier;
    if (var_qual_flag &&
-      ((qualifier != ARG1 && qualifier != ARG2) || value_flag))
-      qualifier = value [qualifier];
+      ((qualifier != ARG1 && qualifier != ARG2 && qualifier != ARG3) || 
+         value_flag))
+            qualifier = value [qualifier];
 
    if (what > LPLACE)
       ta = textadr [what];
@@ -1585,13 +1595,9 @@ int qualifier;
       {
          textqual = text_info [twat + 1];
          if (textqual <= 1)
-         {
             textqual = 0;
-         }
          else
-         {
             textqual = irand (textqual);
-         }
       }
       else if (text_info [twat] == INCREMENTAL_TEXT)
       {
@@ -1608,22 +1614,15 @@ int qualifier;
             value [what] = 0;
       }
       else if (text_info [twat] == ASSIGNED_TEXT)
-      {
          textqual = value [what];
-      }
       else if (text_info [twat] == TIED_TEXT)
-      {
          textqual = value [value [what]];
-      }
+      else if (qualifier == ARG2 && value [ARG2] < BADWORD)
+         textqual = value [value [qualifier]];
    }
 
    if (!qual_flag)
-   {
-      if (what <= LPLACE)
-         qualifier = value [what];
-      else
-         qualifier = what;
-   }
+      qualifier = (what <= LPLACE) ? value [what] : what;
    
    while (tc != '\0')
    {
@@ -1695,22 +1694,35 @@ int qualifier;
                outchar (*cp);
             goto next_char;
          }
+#if STYLE >= 11
+         else if (qualifier == ARG1 || qualifier == ARG2 || qualifier == ARG3)
+         {
+            if (qualifier == ARG1)
+               cp = arg1_word;
+            else if (qualifier == ARG2)
+               cp = arg2_word;
+            else
+               cp = arg3_word;
+            while (*cp != '\0')
+               outchar (*cp++);
+            goto next_char;
+         }
+         else if (qualifier == ORIG)
+         {
+            cp = orig;
+            while (*cp != '\0')
+               outchar (*cp++);
+            goto next_char;
+         }
+#else /* STYLE < 11 */
          else if (qualifier == ARG1 || qualifier == ARG2)
          {
-            cp = ((qualifier == ARG1) ? arg1_word : arg2_word) - 1;
-            while (*(++cp) != '\0')
-               outchar (*cp);
+            cp = (qualifier == ARG1 ? arg1_word : arg2_word);
+            while (*cp != '\0')
+               outchar (*cp++);
             goto next_char;
          }
-#if STYLE >= 11
-         else if (qualifier == ORG1 || qualifier == ORG2)
-         {
-            cp = ((qualifier == ORG1) ? orig1 : orig2) - 1;
-            while (*(++cp) != '\0')
-               outchar (*cp);
-            goto next_char;
-         }
-#endif
+#endif /* STYLE */
          else
          {
             index = (var_qual_flag && given_qualifier <= LPLACE) ?
@@ -1875,8 +1887,9 @@ int insize;
             fclose (com_file);
             com_file = NULL;
 #ifdef READLINE
-            rdl = readline (NULL);
+            rdl = readline (lbuf);
             memcpy (inbuf, rdl, insize);
+            add_history (rdl);
             free (rdl);
             *(inbuf + insize - 1) = 0;
 #else /* not READLINE */
@@ -1899,8 +1912,9 @@ int insize;
    else if (com_file == NULL)
 #ifdef READLINE
    {
-      rdl = readline (NULL);
+      rdl = readline (lbuf);
       memcpy (inbuf, rdl, insize);
+      add_history (rdl);
       free (rdl);
       *(inbuf + insize - 1) = 0;
    }
@@ -1947,10 +1961,6 @@ int fill;
 
    if (scrchk (0) != 0)
       return lptr;
-/* printf ("+++ OUTLINE =%c=%c=%c=...=%c=%c=%c: %d, %d, %d\n", 
-*aptr, *(aptr+1), *(aptr+2),
-*(aptr+char_count-3), *(aptr+char_count-2), *(aptr+char_count-1), 
-fill, break_count, char_count); */
    if (need = Margin)
       while (need--)
          PUTCHAR (' ');
@@ -1977,7 +1987,7 @@ fill, break_count, char_count); */
             index = base;
             while (index-- > 0)
             {
-               (void) PUTCHAR (' ');
+               PUTCHAR (' ');
             }
             if (--break_point ==0)
                base = base + adjust;
@@ -1987,16 +1997,22 @@ fill, break_count, char_count); */
          PUTCHARA (aptr);
       }
    }
+#ifdef READLINE
+   *lbp = '\0';
+   if (*aptr)
+      printf (lbuf);
+   lbp = lbuf;      
+#endif
    fflush (stdout);
    return (aptr);
 }
 
 #ifdef __STDC__
-void advcpy (char *word_buff, long word_addr)
+void advcpy (char *word_buff, int word_addr)
 #else
 void advcpy (word_buff, word_addr)
 char *word_buff;
-long word_addr;
+int word_addr;
 #endif
 {
    int wlen;
@@ -2033,7 +2049,7 @@ int refno;
 void default_to (int key, int place, int type)
 #else
 void default_to (key, place, type)
-int key;
+int key;   /* 0 is "default", 1 is initial "doall", 2 is continued "doall" */
 int place;
 int type;
 #endif
@@ -2049,10 +2065,28 @@ int type;
    if (first > LOBJECT)
       goto failed;
    for (index = first; index <= LOBJECT; index++)
+   {
+#if STYLE >= 11
+      if (except_count > 0)
+      {
+         int i, j;
+         j = 0;
+         for (i = 0; i < except_count; i++)
+            if (index == except [i])
+            { 
+               except [i] = except [except_count - 1];
+               except_count--;
+               j = 1;
+               break;
+            }
+         if (j)
+            continue;
+      }
+#endif /* STYLE == 11 */
 #else /* not ALL */
    for (index = FOBJECT; index <= LOBJECT; index++)
-#endif /* ALL */
    {
+#endif /* ALL */
 #ifdef SCHIZOID
       if ((location [index] == place || (place != INHAND &&
          bitest (index, SCHIZOID) && location [index] + 1 == place)) &&
@@ -2110,24 +2144,52 @@ failed:
 
 #if STYLE >= 11
 #ifdef __STDC__
-int find_word 
-   (int *type, int *refno, long *tadr, int *olen, long *ovoc, int which_arg)
+void report_typo (int ovoc, int olen)
 #else
-int find_word (type, refno, tadr, olen, ovoc, which_arg)
+void report_typo (ovoc, olen)
+int ovoc;
+int olen;
+#endif
+{
+   char save_char;
+
+   (void) strncpy (orig, tp [tindex], WORDSIZE);
+#ifdef DWARVEN
+   if (value [DWARVEN]) shift_down (orig, WORDSIZE);
+#endif
+   say (QUAL_FLAG, TYPO, ORIG);
+   advcpy (orig, ovoc);
+   save_char = *(orig + olen);
+   *(orig + olen) = '\0';
+   say (QUAL_FLAG, TYPO, ORIG);
+   *(orig + olen) = save_char;
+   if (olen >= strlen (orig)) 
+      value [TYPO]++;
+   else
+      say (QUAL_FLAG, TYPO, ORIG);
+   say (0, TYPO, 0);
+   *orig = '\0';
+   PRINTF("\n\n");
+}
+
+#ifdef __STDC__
+void find_word (int *type, int *refno, int *tadr, int which_arg, int gripe)
+#else
+void find_word (type, refno, tadr, which_arg, gripe)
 int *type;
 int *refno;
-long *tadr;
-int *olen = 0;
-long *ovoc;
+int *tadr;
+int which_arg;
+int gripe;
 #endif
 #else
 #ifdef __STDC__
-int find_word (int *type, int *refno, long *tadr)
+int find_word (int *type, int *refno, int *tadr)
 #else
 int find_word (type, refno, tadr)
 int *type;
 int *refno;
-long *tadr;
+int *tadr;
 #endif
 #endif
 {
@@ -2135,19 +2197,23 @@ long *tadr;
    int old_refno;
 #if STYLE > 1
    int old_type;
-   long old_tadr;
+   int old_tadr;
 #endif /* STYLE */
+#if STYLE >= 11
+   int ovoc;
+   int olen;
+#endif
    int exact;
-   long va;
+   int va;
    char *wp;
-   long ra;
+   int ra;
    char myword [WORDSIZE];
   
 #if STYLE >= 11
    if (amatch == -1)
    {
       *refno = BADWORD;
-      return (0);
+      goto done;
    }
 #endif /* STYLE >= 11 */
    strcpy (myword, tp [tindex]);
@@ -2157,7 +2223,7 @@ long *tadr;
    if (*myword == '\0')
    {
       *type = NOISE;
-      return (0);
+      goto done;
    }
    bottom = -1;
    top = VOCAB_SIZE + 1;
@@ -2230,10 +2296,10 @@ long *tadr;
                      *wp == get_char (voc_addr [bottom]))
                         *tadr = voc_word [bottom];
             }
-            return (0);
+            goto done;
          }
 #else /* STYLE > 1 */
-            return (0);
+            goto done;
          if (old_refno != BADWORD && *refno != old_refno)
 #if STYLE >= 11
          {
@@ -2243,7 +2309,7 @@ long *tadr;
             int nref = REF (*refno);
             
             if ((nref && oref) || (!nref && !oref))
-               { *refno = AMBIGWORD; return (0); }
+               { *refno = AMBIGWORD; goto done; }
             if (!nref && oref)
             { 
                *refno = old_refno; 
@@ -2269,7 +2335,7 @@ long *tadr;
    if (*refno == BADWORD && amatch)
    {
       char *bp = NULL;
-      long ba = 0;
+      int ba = 0;
       old_refno = -1;
       for (bottom = 0; bottom < VOCAB_SIZE; bottom++)
       {
@@ -2285,8 +2351,8 @@ long *tadr;
                voc_refno [old_refno] != voc_refno [bottom])
                   {old_refno = AMBIGTYPO; break;}
             old_refno = bottom; 
-            *ovoc = voc_addr [bottom];
-            *olen = va - *ovoc;
+            ovoc = voc_addr [bottom];
+            olen = va - ovoc;
             continue;
          }
          bp = wp;
@@ -2304,8 +2370,8 @@ long *tadr;
                   voc_refno [old_refno] != voc_refno [bottom])
                      {old_refno = AMBIGTYPO; break;}
                old_refno = bottom; 
-               *ovoc = voc_addr [bottom];
-               *olen = va - *ovoc;
+               ovoc = voc_addr [bottom];
+               olen = va - ovoc;
                continue;
             }
            wp = bp; 
@@ -2324,8 +2390,8 @@ long *tadr;
                   voc_refno [old_refno] != voc_refno [bottom])
                      {old_refno = AMBIGTYPO; break;}
                old_refno = bottom; 
-               *ovoc = voc_addr [bottom];
-               *olen = va - *ovoc;
+               ovoc = voc_addr [bottom];
+               olen = va - ovoc;
                continue;
             }
             wp = bp;
@@ -2343,8 +2409,8 @@ long *tadr;
                   voc_refno [old_refno] != voc_refno [bottom])
                      {old_refno = AMBIGTYPO; break;}
                old_refno = bottom; 
-               *ovoc = voc_addr [bottom];
-               *olen = va - *ovoc;
+               ovoc = voc_addr [bottom];
+               olen = va - ovoc;
                continue;
             }
             wp = bp;
@@ -2362,8 +2428,8 @@ long *tadr;
                   voc_refno [old_refno] != voc_refno [bottom])
                      {old_refno = AMBIGTYPO; break;}
                old_refno = bottom; 
-               *ovoc = voc_addr [bottom];
-               *olen = va - *ovoc;
+               ovoc = voc_addr [bottom];
+               olen = va - ovoc;
                continue;
             }
          }
@@ -2375,11 +2441,24 @@ long *tadr;
          *type = voc_type [old_refno];
          *refno = voc_refno [old_refno];
          *tadr = voc_word [old_refno];
-         return (1);
+         if (gripe)
+            report_typo (ovoc, olen);
       }
    }
 #endif /* STYLE >= 11 */
-   return (0);
+done:
+   if (*refno >= BADWORD)
+   {
+      while (tp [tindex])
+         tindex++;
+      tindex--;
+   }
+#if defined(FDIR) && defined(LDIR) 
+   else if ((*refno > FDIR && *refno < LDIR) && 
+            separator [tindex + 1] == ' ')
+      separator [tindex + 1] = ';';
+#endif
+   return;
 }
 
 #ifdef __STDC__
@@ -2440,6 +2519,13 @@ void parse ()
       tindex++;
    }
    tp [tindex] = NULL;
+#ifdef DEBUG
+   for (sep = 0; sep < tindex; sep++)
+      printf ("+++ i %d, sep '%c', token '%s'\n", sep, 
+      separator[sep] == '\n' ? 'N' : separator[sep], tp[sep]);
+   printf ("+++ i %d, sep '%c', token NULL\n", tindex, 
+      separator[tindex] == '\n' ? 'N' : separator[sep]);
+#endif /* DEBUG */
    return;      
 }
 
@@ -2452,10 +2538,9 @@ int textref;
 {
    int type;
    int refno;
-   long tadr;
+   int tadr;
    int continuation;
    char *wp;
-   int typo = 0;
 
    if (value [STATUS] < 90 || value [STATUS] >= LTEXT)
       amatch = 1;
@@ -2465,8 +2550,11 @@ int textref;
       amatch = -1;
       
 #if STYLE >= 11
-   *orig1 = '\0';
-   *orig2 = '\0';
+#ifdef ALL
+   if (value_all == 0)
+      except_count = 0;
+#endif
+   *orig = '\0';
 #endif
    *bitword (ARG1) = -1;        /* Just in case! */
    *bitword (ARG2) = -1; 
@@ -2560,11 +2648,10 @@ if (tp[tindex] == NULL)
 get_arg1:
 
 #if STYLE >= 11
-   *orig1 = '\0';
-   typo = find_word (&type, &refno, &tadr, &olen1, &ovoc1, 
-      separator [tindex] == ',' ? 2 : 1);
+   *orig = '\0';
+   find_word (&type, &refno, &tadr, separator [tindex] == ',' ? 2 : 1, 1);
 #else
-   typo = find_word (&type, &refno, &tadr);
+   find_word (&type, &refno, &tadr);
 #endif
    tindex++;
    if (type == NOISE)
@@ -2627,17 +2714,6 @@ get_arg1:
          (void) strncpy (arg2_word, tp [tindex - 1], WORDSIZE);
       else
       {
-#if STYLE >= 11
-         if (typo)
-         {
-            typo = 0;
-            (void) strncpy (orig2, tp [tindex - 1], WORDSIZE);
-            ovoc2 = ovoc1;
-            olen2 = olen1;
-         }
-         else
-            *orig2 = '\0';
-#endif /* STYLE >= 11 */
          (void) advcpy (arg2_word, tadr);
 #ifdef DWARVEN
          if (value [DWARVEN] || extra_dwarvish)
@@ -2665,18 +2741,6 @@ get_arg1:
       (void) strncpy (arg1_word, tp [tindex - 1], 20);
    else
    {
-#if STYLE >= 11
-      if (typo)
-      {
-         typo = 0;
-         (void) strncpy (orig1, tp [tindex - 1], WORDSIZE);
-#ifdef DWARVEN
-         if (value [DWARVEN]) shift_down (orig1, WORDSIZE);
-#endif
-      }
-      else
-         *orig1 = '\0';
-#endif
       (void) advcpy (arg1_word, tadr);
 #ifdef DWARVEN
       if (value [DWARVEN] || extra_dwarvish)
@@ -2692,18 +2756,44 @@ get_arg1:
 get_arg2:
    if (separator [tindex] == ' ' && tp [tindex])
    {
-#if defined(FIRST_SPECIAL) && defined(LAST_SPECIAL)
+#if defined(FMAGIC) && defined (LMAGIC)
+   if (value [ARG1] > FMAGIC && value [ARG1] < LMAGIC)
+   {
+      separator [tindex + 1] = ';';
+      goto got_command;
+   }
+#endif
+#if defined(FSPECIAL) && defined(LSPECIAL)
       int bmatch = amatch;
       if (amatch == 1)
-         amatch = (value [ARG1] < FIRST_SPECIAL || value [ARG1] > LAST_SPECIAL);
+         amatch = (value [ARG1] < FSPECIAL || value [ARG1] > LSPECIAL);
 #endif
 #if STYLE >= 11
-      *orig2 = '\0';
-      typo = find_word (&type, &refno, &tadr, &olen2, &ovoc2, 2);
+#ifdef SAY
+      if (value [ARG1] == SAY)
+      {
+         char say_buf[160];
+         int i = tindex;
+         strcpy (say_buf, tp [i]);
+         while (tp [i] && (separator[i + 1] == ' ' || separator[i + 1] == ','))
+         {
+            strcat (say_buf, " ");
+            strcat (say_buf, tp [i + 1]);
+            if (separator [i + 1] == ' ')
+               separator [i + 1] = ',';
+            i++;
+         }
+         PRINTF("\nOk - \"")
+         PRINTF(say_buf)
+         PRINTF("\"\n")
+      }
+#endif /* SAY */
+      *orig = '\0';
+      find_word (&type, &refno, &tadr, 2, 1);
 #else
-      typo = find_word (&type, &refno, &tadr);
+      find_word (&type, &refno, &tadr);
 #endif
-#if defined(FIRST_SPECIAL) && defined(LAST_SPECIAL)
+#if defined(FSPECIAL) && defined(LSPECIAL)
       amatch = bmatch;
 #endif
       tindex++;
@@ -2734,18 +2824,6 @@ get_arg2:
          (void) strncpy (arg2_word, tp [tindex - 1], 20);
       else 
       {
-#if STYLE >= 11
-         if (typo)
-         {
-            typo = 0;
-            (void) strncpy (orig2, tp [tindex - 1], WORDSIZE);
-#ifdef DWARVEN
-            if (value [DWARVEN]) shift_down (orig2, WORDSIZE);
-#endif
-         }
-         else
-            *orig2 = '\0';
-#endif
          (void) advcpy (arg2_word, tadr);
 #ifdef DWARVEN
          if (value [DWARVEN] || extra_dwarvish)
@@ -2800,14 +2878,6 @@ got_command:
       (void) strncpy (temp_word, arg1_word, 20);
       (void) strncpy (arg1_word, arg2_word, 20);
       (void) strncpy (arg2_word, temp_word, 20);
-#if STYLE > 11
-      temp_val = ovoc1;
-      ovoc1 = ovoc2;
-      ovoc2 = temp_val;
-      temp_val = olen1;
-      olen1 = olen2;
-      olen2 = temp_val;
-#endif
    }
    arg1_word [19] = '\0';
    arg2_word [19] = '\0';
@@ -2820,6 +2890,48 @@ got_command:
 #endif
    if (separator [tindex] == ' ')
    {
+#if STYLE >= 11 && defined(ALL) && defined (EXCEPT)
+      if (tp [tindex])
+      {
+         find_word (&type, &refno, &tadr, 3, 0);
+         if (refno == EXCEPT)
+         {
+            tindex++;
+            while (refno < BADWORD && 
+               (separator [tindex] == ' ' || separator [tindex] == ','))
+            {
+               if (strcmp (tp [tindex], "and") != 0)
+               {
+                  find_word (&type, &refno, &tadr, 3, 1);
+                  if (refno >= BADWORD)
+                     break;
+                  else if (refno > LOBJECT)
+                  {
+                     refno = BADSYNTAX;
+                     break;
+                  }
+                  else
+                  {
+                     (void) advcpy (arg3_word, tadr);
+                     except [except_count++] = refno;
+                  }
+ 	       }
+               tindex++;
+            }
+            value [ARG3] = -1;
+            if (refno >= BADWORD)
+            {
+               value [ARG3] = refno;
+               (void) strncpy (arg3_word, tp [tindex], WORDSIZE);
+#ifdef DWARVISH
+               if (value[DWARVEN])
+                  shift_down (arg3_word, WORDSIZE);
+#endif
+               return;
+            }
+         }
+      }
+#endif /* ALL and EXCEPT */
       if (tp [tindex] && strcmp (tp [tindex], "and") == 0 && 
          separator [++tindex] == ' ')
             separator [tindex] = ',';
@@ -2827,7 +2939,8 @@ got_command:
       {
          while (separator [++tindex] == ' ');
 #if STYLE >= 11
-         if (value [STATUS] == 2)
+         if (value [STATUS] > 1 && 
+            (separator [tindex] == ' ' || separator [tindex] == ','))
             value [STATUS] = BADSYNTAX;
       }
    }
@@ -2845,6 +2958,13 @@ got_command:
       }
    }
 #endif
+   if (value [STATUS] == 1)
+      value [ARG2] = -1;
+   else if (value [STATUS] == BADSYNTAX)
+   {
+      value [ARG1] = -1;
+      value [ARG2] = -1;
+   }
    return;
 }
 
@@ -2959,14 +3079,14 @@ int *var;
    char save_title [32];
    FILE *game_file;
    int val, val1;
-   long lval;
+   int lval;
    char tval [sizeof (time_t)];
-   long chksum;
-   long chksav;
+   int chksum;
+   int chksav;
    char *cptr;
    int cnt;
    static int saved_value;
-   static long game_time;
+   static int game_time;
    struct stat statbuf;
    void adv_hours ();
    void adv_news ();
@@ -3099,7 +3219,7 @@ try_again:
             CHKSUM(qvals, sizeof(qvals));
          }
 #endif /* CONTEXT */
-         (void) fwrite (&chksum, sizeof (long), 1, game_file);
+         (void) fwrite (&chksum, sizeof (int), 1, game_file);
          (void) fwrite (tval, 1, sizeof(tval), game_file);
          (void) fwrite (value, sizeof (int), 
             sizeof (value) / sizeof(int), game_file);
@@ -3116,7 +3236,7 @@ try_again:
          {
             (void) fwrite (qwords, sizeof (char), sizeof (qwords), game_file);
             (void) fwrite (qvals, sizeof (char), sizeof (qvals), game_file);
-            (void) fwrite (&mainseed, sizeof (long), 1, game_file);
+            (void) fwrite (&mainseed, sizeof (int), 1, game_file);
             (void) fwrite (word_buf, sizeof (short), *word_buf - 1, game_file);
             (void) fwrite (old_comline, sizeof (char), sizeof (old_comline),
                game_file);
@@ -3187,7 +3307,7 @@ restore_it:
 #ifdef DEBUG
          puts ("Reading image...");
 #endif
-         (void) fread (&chksav, sizeof (long), 1, game_file);
+         (void) fread (&chksav, sizeof (int), 1, game_file);
          (void) fread (tval, 1, sizeof (tval), game_file);
          (void) fread (value, sizeof (int), val, game_file);
          (void) fread (location, sizeof (int), 
@@ -3203,7 +3323,7 @@ restore_it:
          {
             (void) fread (qwords, sizeof (char), sizeof (qwords), game_file);
             (void) fread (qvals, sizeof (char), sizeof (qvals), game_file);
-            (void) fread (&mainseed, sizeof (long), 1, game_file);
+            (void) fread (&mainseed, sizeof (int), 1, game_file);
             if (! ferror (game_file))
             {
                (void) fread (word_buf, sizeof (short), 2, game_file);
@@ -3252,7 +3372,7 @@ restore_it:
             *var = 2;
             return (0);
          }
-         memcpy (&game_time, tval, sizeof (long));
+         memcpy (&game_time, tval, sizeof (int));
 #ifdef CONTEXT
          if (key == 997) value [CONTEXT] = 2;
 #endif
@@ -3297,24 +3417,13 @@ restore_it:
       case 13:         /* Spare */
          *var = 0;
          return (0);
-      case 14:         /* Check for virgin data file */
-#ifdef CONTEXT
-         if (cgi)
-            *var = stat ("adv.vrg", &statbuf) ? 1 : 0;
-         else
-#endif
-            *var = virgin == 'v' ? 1 : 0;
+      case 14:         /* Check for virgin game */
+         if ((*var = (rape_file = fopen ("adv.vrg", "r")) ? 0 : 1) == 0)
+            fclose (rape_file);
          return (0);
       case 15:         /* Note that he meditated, as he should */
-#ifdef CONTEXT
-         if (cgi)
-            rape_file = fopen ("adv.vrg", "wb");
-         else 
-#endif
-            if (virgin == 'v' && 
-            (rape_file = fopen (data_file, "r+")) != NULL)
-               (void) fputc ('w', rape_file);
-         if (rape_file) fclose (rape_file);
+         if (rape_file = fopen ("adv.vrg", "w"))
+            fclose (rape_file);
          return (0);
       case 16:        /* Initial restore */
          *var = 0;
@@ -3422,6 +3531,11 @@ restore_it:
             Margin = (Linlen - 16) / 2;
          if (Margin < 0) Margin = 0;
          Maxlen = Linlen - 2 * Margin;
+#ifdef READLINE
+         cnt = lbp - lbuf;
+         lbuf = (char *)realloc(lbuf, 2 * Maxlen + 1);
+         lbp = lbuf + cnt;
+#endif
          return (0);
 
       case 21:    /* Set page offset */
@@ -3435,6 +3549,11 @@ restore_it:
          *var = val;
          Margin = val;
          Maxlen = Linlen - val - val;
+#ifdef READLINE
+         cnt = lbp - lbuf;
+         lbuf = (char *)realloc(lbuf, 2 * Maxlen + 1);
+         lbp = lbuf + cnt;
+#endif
          return (0);
 
       case 22:    /* Set screen depth */
@@ -3487,52 +3606,9 @@ restore_it:
          *var = value_all;
          return (0);
 
-      case 27:    /* Report ARG1 typo, if any */
-#if STYLE >= 11         
-         if (*orig1)
-         {
-            char save_char;
-            say (QUAL_FLAG, *var, ORG1);
-            advcpy (orig1, ovoc1);
-            save_char = *(orig1 + olen1);
-            *(orig1 + olen1) = '\0';
-            say (QUAL_FLAG, *var, ORG1);
-            *(orig1 + olen1) = save_char;
-            if (olen1 >= strlen (orig1)) 
-               value [*var]++;
-            else
-               say (QUAL_FLAG, *var, ORG1);
-            say (0, *var, 0);
-            *orig1 = '\0';
-            *var = 1;
-         }
-         else
-#endif
-         *var = 0;
-         return (0);
-         
-      case 28:    /* Report ARG2 typo, if any */
-#if STYLE >= 11
-         if (*orig2)
-         {
-            char save_char;
-            say (QUAL_FLAG, *var, ORG2);
-            advcpy (orig2, ovoc2);
-            save_char = *(orig2 + olen2);
-            *(orig2 + olen2) = '\0';
-            say (QUAL_FLAG, *var, ORG2);
-            *(orig2 + olen2) = save_char;
-            if (olen2 >= strlen (orig2)) 
-               value [*var]++;
-            else
-               say (QUAL_FLAG, *var, ORG2);
-            say (0, *var, 0);
-            *orig2 = '\0';
-            *var = 1;
-         }
-         else
-#endif
-         *var = 0;
+      case 27:
+      case 28:
+         *var = 1;
          return (0);
          
       case 29:    /* Swap ARG1 and ARG2 */
@@ -3554,16 +3630,6 @@ restore_it:
          }
          return (0);
 
-      case 30:   /* Return 1 for ARG1 typo, 2 for ARG2 typo, 0 for none */
-         *var = 0;
-#if STYLE >= 11         
-         if (*orig1)
-            *var = 1;
-         else if (*orig2)
-            *var = 2;
-#endif
-         return (0);
-         
       case 31:   /* Replace ARG2 with what user actually typed */
          *var = 0;
 #if STYLE >= 11
@@ -3571,7 +3637,26 @@ restore_it:
             strncpy (arg2_word, tp [tindex - 1], WORDSIZE);
 #endif
          return (0);
-         
+
+      case 32:   /* Is the object on the exception list? */
+#if STYLE >= 11 && defined (ALL) && defined (EXCEPT)
+         if (except_count == 0)
+         {
+            *var = 0;
+            return (0);
+         }
+         for (cnt = 0; cnt < except_count; cnt++)
+         {
+            if (*var == except [cnt])
+            {
+               *var = 1;
+               return (0);
+            }
+         }
+#endif /* ALL and EXCEPT */
+         *var = 0;
+         return (0);
+
       default:
          PRINTF2 ("\n \nGLITCH! Bad special code: %d\n", key);
          return (1);
@@ -3585,7 +3670,7 @@ int initialise ()
 #endif
 {
 #ifdef MEMORY
-   long text_bytes;
+   int text_bytes;
 #endif
    int index;
    int len;
@@ -3608,7 +3693,7 @@ int initialise ()
    if (dump_name == NULL || *dump_name == '\0')
 #endif
    {
-      PRINTF ("\n[A-code kernel version 11.46; MLA, 24 Jan 2003]\n");
+      PRINTF ("\n[A-code kernel version 11.47; MLA, 14 Feb 2003]\n");
    }
    *data_file = '\0';
    if (SEP != '?')
@@ -3932,6 +4017,12 @@ char **argv;
          }
          if (--argc == 0) break;
          argv++;
+         if (**argv == '-')
+         {
+            argv--;
+            argc++;
+            continue;
+         }
          opt = *argv;
          switch (*kwrd)
          {
@@ -3982,6 +4073,10 @@ char **argv;
          }         
       }
 
+#ifdef READLINE
+   lbuf = (char *)malloc(2 * Maxlen + 1);
+   lbp = lbuf;
+#endif
 #ifdef CGI
    if (cgi) compress = 1;
 #endif
