@@ -1,6 +1,8 @@
 /* adv00.c: A-code kernel - copyleft Mike Arnautov 1990-2003.
  *
+ * 31 May 03   MLA        More tolerance for shorter (older) save-files.
  * 26 May 03   MLA        Parser re-write: THEN is now equivalent to semicolon.
+ *                        Also, let the game do pre-saying.
  * 10 May 03   MLA        BUG: Fixed "drop treasure and <something>".
  * 30 Apr 03   MLA        Bug: Strip off '\r' from MS line terminator.
  * 08 Apr 03   MLA        bug: Initialise to zero values beyond end of
@@ -3172,6 +3174,7 @@ int *var;
    int chksav;
    char *cptr;
    int cnt;
+   int lobj, lplace, lverb, lvar, ltext;
    static int saved_value;
    static int game_time;
    void adv_hours ();
@@ -3358,31 +3361,31 @@ restore_it:
          printf ("FOBJECT: image %3d, expected %3d\n", val, FOBJECT);
 #endif /* DEBUG */
          if (val != FOBJECT) val1++;
-         (void) fread (&val, sizeof (int), 1, game_file);
+         (void) fread (&lobj, sizeof (int), 1, game_file);
 #ifdef DEBUG
-         printf ("LOBJECT: image %3d, expected %3d\n", val, LOBJECT);
+         printf ("LOBJECT: image %3d, expected %3d\n", lobj, LOBJECT);
 #endif /* DEBUG */
-         if (val != LOBJECT) val1++;
-         (void) fread (&val, sizeof (int), 1, game_file);
+         if (lobj > LOBJECT) val1++;
+         (void) fread (&lplace, sizeof (int), 1, game_file);
 #ifdef DEBUG
-         printf ("LPLACE: image %3d, expected %3d\n", val, LPLACE);
+         printf ("LPLACE: image %3d, expected %3d\n", lplace, LPLACE);
 #endif /* DEBUG */
-         if (val != LPLACE) val1++;
-         (void) fread (&val, sizeof (int), 1, game_file);
+         if (lplace > LPLACE) val1++;
+         (void) fread (&lverb, sizeof (int), 1, game_file);
 #ifdef DEBUG
-         printf ("LVERB: image %3d, expected %3d\n", val, LVERB);
+         printf ("LVERB: image %3d, expected %3d\n", lverb, LVERB);
 #endif /* DEBUG */
-         if (val != LVERB) val1++;
-         (void) fread (&val, sizeof (int), 1, game_file);
+         if (lverb > LVERB) val1++;
+         (void) fread (&lvar, sizeof (int), 1, game_file);
 #ifdef DEBUG
-         printf ("LVARIABLE: image %3d, expected %3d\n", val, LVARIABLE);
+         printf ("LVARIABLE: image %3d, expected %3d\n", lvar, LVARIABLE);
 #endif /* DEBUG */
-         if (val != LVARIABLE) val1++;
-         (void) fread (&val, sizeof (int), 1, game_file);
+         if (lvar > LVARIABLE) val1++;
+         (void) fread (&ltext, sizeof (int), 1, game_file);
 #ifdef DEBUG
-         printf ("LTEXT: image %3d, expected %3d\n", val, LTEXT);
+         printf ("LTEXT: image %3d, expected %3d\n", ltext, LTEXT);
 #endif /* DEBUG */
-         if (val > LTEXT) val1++;
+         if (ltext > LTEXT) val1++;
 
          if (val1)
          {
@@ -3391,12 +3394,21 @@ restore_it:
             return (0);
          }
          chksav = 0;
+         val = sizeof (value) + sizeof (location) +
+               sizeof (objbits) + sizeof (placebits) + sizeof (varbits);
+         if (image_base == NULL)
+         {
+            image_base = (char *) malloc (val);
+            if (image_base == NULL)
+               return (0);
+         }
+         image_ptr = image_base;
 #ifdef DEBUG
          puts ("Reading image...");
 #endif
          (void) fread (&chksav, sizeof (int), 1, game_file);
          (void) fread (tval, 1, sizeof (tval), game_file);
-         (void) fread (value, sizeof (int), val, game_file);
+         (void) fread (image_base, sizeof (int), ltext, game_file);
          (void) fread (location, sizeof (int), 
             sizeof (location) / sizeof (int), game_file);
          (void) fread (objbits, sizeof (short), 
@@ -3442,11 +3454,11 @@ restore_it:
          (void) fclose (game_file);
          chksum = 0;
          CHKSUM(tval, sizeof(tval))
-         CHKSUM(value, (int)(val * sizeof(value[0])))
+         CHKSUM(image_base, (int)(ltext * sizeof(value[0])))
          CHKSUM(location, sizeof(location))
-         CHKSUM(objbits, sizeof(objbits))
-         CHKSUM(placebits, sizeof(placebits))
-         CHKSUM(varbits, sizeof(varbits))
+         CHKSUM(objbits, (lobj - FOBJECT + 1) * OBJSIZE * sizeof(objbits[0]))
+         CHKSUM(placebits, (lplace - lobj) * PLACESIZE * sizeof(placebits[0]))
+         CHKSUM(varbits, (lvar - lplace) * VARSIZE * sizeof(varbits[0]))
          if (val < LTEXT)    /* In case we added some texts since then! */
             while (val < LTEXT)
                *(value + (val++)) = 0;
@@ -3463,6 +3475,15 @@ restore_it:
             return (0);
          }
          memcpy (&game_time, tval, sizeof (int));
+         memcpy (value, image_base, (lobj + 1) * sizeof (int));
+         memcpy (value + FPLACE, (int *)image_base + lobj + 1, 
+            (lplace - lobj) * sizeof (int));
+         memcpy (value + FVERB, (int *)image_base + lplace + 1, 
+            (lverb - lplace) * sizeof (int));
+         memcpy (value + FVARIABLE, (int *)image_base + lverb + 1,
+            (lvar - lverb - 1) * sizeof (int));
+         memcpy (value + FTEXT, (int *)image_base + lvar,
+            (ltext - lvar + 1) * sizeof (int));
 #ifdef CONTEXT
          if (key == 997) value [CONTEXT] = 2;
 #endif
@@ -3848,7 +3869,7 @@ int initialise ()
    if (dump_name == NULL || *dump_name == '\0')
 #endif
    {
-      PRINTF ("\n[A-code kernel version 11.57; MLA, 25 May 2003]\n");
+      PRINTF ("\n[A-code kernel version 11.58; MLA, 31 May 2003]\n");
    }
    *data_file = '\0';
    if (SEP != '?')
