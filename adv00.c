@@ -1,5 +1,9 @@
 /* adv00.c: A-code kernel - copyleft Mike Arnautov 1990-2004.
- *
+ */
+#define KVERSION "11.75; MLA, 19 Aug 2004"
+/*
+ * 19 Aug 04   MLA        Replaced special(31) with verbatim().
+ * 08 Aug 04   MLA        bug: Force logfile in CGI mode.
  * 07 Aug 04   MLA        Bug: Remember game name on initial restore in
  *                        the cgi mode.
  * 31 Jul 04   MLA        bug: Don't abort compound commands after "except".
@@ -202,8 +206,6 @@
  * 15 Sep 90   MLA        Initial coding.
  *
  */
-
-#define KVERSION "11.73; MLA, 07 Aug 2004"
 
 #include "adv1.h"
 
@@ -3706,10 +3708,10 @@ restore_it:
    system ("pwd");
  }
          return (0);
-      case 4:          /* Spare */
-      case 5:          /* Spare */
+      case 4:          /* Adv550 legacy - flush game cache */
+      case 5:          /* Adv550 legacy - get prime time flag */
          *var = 0;
-         return (0);
+         return (0); 
       case 6:          /* Save value of a variable (only one can be saved!) */
          saved_value = *var;
          return (0);
@@ -3721,8 +3723,12 @@ restore_it:
          *var = 1 + (lval - game_time) / 60;      /* Be generous! */
          return (0);
       case 9:         /* Fudge a value into ARG1 */
+#if STYLE < 10
+         *var = 0;
+#else
          value [ARG1] = *var;
          fake (1, *var);
+#endif
          return (0);
       case 10:        /* Fudge a value into ARG2 */
          value [ARG2] = *var;
@@ -3736,9 +3742,7 @@ restore_it:
       case 12:         /* Check for end of command */
          *var = (tp[tindex] == NULL);
          return (0);
-      case 13:         /* Spare */
-         *var = 0;
-         return (0);
+/*    case 13: */         /* Spare */
       case 14:         /* Check for virgin game */
          if ((*var = (rape_file = fopen ("adv.vrg", RMODE)) ? 0 : 1) == 0)
             fclose (rape_file);
@@ -3747,39 +3751,9 @@ restore_it:
          if (rape_file = fopen ("adv.vrg", WMODE))
             fclose (rape_file);
          return (0);
-      case 16:        /* Initial restore */
-         *var = 0;
-         if (dump_name)
-         {
-            strncpy (file_name, dump_name, 16);
-            strcat (file_name, "\n");
-            if (log_file)
-               fprintf (log_file, "REPLY: %s\n", file_name);
-            dump_name = NULL;
-         }
-         else
-         {
-            PRINTF (
-               "\n \nGame to restore (or press ENTER for a brand new game): ");
-            getinput (file_name, 16);
-         }
-         (void) scrchk (1);
-         if (*file_name == '\n' || *file_name == '\0')
-            return (0);
-         value [ARG2] = 0;
-         (void) strcpy (arg2_word, file_name);
-         *(arg2_word + strlen (arg2_word) - 1) = '\0';
-         value [STATUS] = 2;
-         *var = 1;
-         return (0);
-      case 17:    /* Memory save */
-         *var = memstore (0);
-         return (0);
-
-      case 18:    /* Memory restore */
-         *var = memstore (1);
-         return (0);
-               
+/*    case 16: */        /* Spare */
+/*    case 17: */        /* Spare */
+/*    case 18: */        /* Spare */
       case 19:    /* Fiddle justification */
          val = *var;
          justify = val < 2 ? val : 1 - justify;
@@ -3861,19 +3835,10 @@ restore_it:
          strncpy (arg2_word, qargw2, 20);
          return (0);
 
-      case 25:    /* Check for running as CGI */
-#ifdef CONTEXT
-         *var = cgi ? 1 : 0;
-#else
-         *var = 0;
-#endif
-         return (0);
+/*    case 25: */   /* Spare */
+/*    case 26: */   /* Spare */
 
-      case 26:    /* Check for being in a "do all" loop */
-         *var = value_all;
-         return (0);
-
-      case 27:    /* Pre say */
+      case 27:    /* Pre-say */
          *var = 1;
          if (*say_buf)
          {
@@ -3884,7 +3849,7 @@ restore_it:
          }
          return (0);
          
-      case 28:   /* Recover from failed save */
+      case 28:   /* Recover from failed restore */
          *var = memstore (3);
          return (0);
          
@@ -3907,17 +3872,9 @@ restore_it:
          }
          return (0);
 
-      case 30:   /* Convert last message output into a fragment */
-         while (*(lptr - 1) == '\n') lptr--;
-         return (0);
+/*      case 30:   Spare */
          
-      case 31:   /* Replace ARG2 with what user actually typed */
-         *var = 0;
-#if STYLE >= 11
-         if (value [STATUS] == 2)
-            strncpy (arg2_word, tp [tindex - 1], WORDSIZE);
-#endif
-         return (0);
+/*      case 31:   Spare */
 
       case 32:   /* Is the object on the exception list? */
 #if STYLE >= 11 && defined (ALL) && defined (EXCEPT)
@@ -4432,6 +4389,8 @@ char **argv;
             case 'y':
                cgi = *kwrd;
                strncpy (cgicom, opt, sizeof (cgicom));
+               if (*log_name == '\0')
+                  strcpy (log_name, "adv770.log");
                break;
 #endif /* CONTEXT */               
             default:
@@ -5116,3 +5075,47 @@ int *var;
    return;
 }
 
+#ifdef __STDC__
+void glue_text (void)
+#else
+void glue_text();
+#endif
+{
+/* Convert last message output into a fragment */
+   while (*(lptr - 1) == '\n') lptr--;
+}
+
+#ifdef __STDC__
+void verbatim (int arg)
+#else
+void verbatim(arg);
+int arg;
+#endif
+{
+   if (arg == ARG1)
+      strncpy (arg1_word, tp [tindex - 1], WORDSIZE);
+   else if (arg == ARG2 && value [STATUS] == 2)
+      strncpy (arg2_word, tp [tindex - 1], WORDSIZE);
+   else
+      (void) PRINTF2 ("GLITCH! Bad ARGn indicator: %d\n", arg);
+}
+
+#ifdef __STDC__
+int test (char *type)
+#else
+int test (type);
+char *type;
+#endif
+{
+   if (strcmp(type, "cgi") == 0)
+#ifdef CONTEXT
+      return (cgi);
+#else
+      return (0);
+#endif
+   if (strcmp(type, "doall") == 0)
+      return (value_all);
+      
+   (void) PRINTF2 ("GLITCH! Bad test type: %s\n", type);
+   return (0);
+}

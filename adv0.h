@@ -39,6 +39,9 @@ extern int keyword (int first, ...);
 extern void move (int a1, int a2, ...);
 extern void tie (int text, int holder);
 extern int jrand (int limit);
+extern void glue_text (void);
+extern void verbatim (int);
+extern int test(char *);
 #else
 extern void say ();
 extern int query ();
@@ -70,6 +73,9 @@ extern int keyword ();
 extern void move ();
 extern void tie ();
 extern int jrand ();
+extern void glue_text ();
+extern void verbatim ();
+extern int test();
 #endif
 extern jmp_buf loop_back;
 extern int value[];
