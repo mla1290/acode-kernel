@@ -1,5 +1,6 @@
 /* adv00.c: A-code kernel - copyleft Mike Arnautov 1990-2004.
  *
+ * 31 Jul 04   MLA        bug: Don't abort compound commands after "except".
  * 09 Apr 04   MLA        bug: Don't print kernel version twice if GLK.
  * 14 Mar 04   MLA        BUG: Or for (internal) "-z" ones. And don't leave
  *                        debug statements lying around!!!
@@ -200,7 +201,7 @@
  *
  */
 
-#define KVERSION "11.71; MLA, 09 Apr 2004"
+#define KVERSION "11.72; MLA, 31 Jul 2004"
 
 #include "adv1.h"
 
@@ -2589,9 +2590,9 @@ void parse ()
          cptr++;
       separator [tindex + 1] = *cptr;
       *cptr++ = '\0';
-      if (strcmp (tp [tindex], "and") == 0)
+      if (strcmp (tp [tindex], AND) == 0)
          separator [tindex] = ',';
-      else if (strcmp (tp [tindex], "then") == 0)
+      else if (strcmp (tp [tindex], THEN) == 0)
          separator [tindex] = ';';
       else
          tindex++;
@@ -2633,12 +2634,12 @@ void parse ()
       }
       if (tindex > 0)
       {
-         if (strcmp (tp [tindex - 1], "and") == 0)
+         if (strcmp (tp [tindex - 1], AND) == 0)
          {
             tindex--;
             if (sep == ' ') sep = ',';
          }
-         else if (strcmp(tp [tindex - 1], "then") == 0)
+         else if (strcmp(tp [tindex - 1], THEN) == 0)
          {
             tindex--;
             if (sep == ' ' || sep == ',') sep = ';';
@@ -2658,12 +2659,12 @@ void parse ()
          lp++;
       sep = 0;
       ew = lp;
-      if (strcmp (tp [tindex], "and") == 0)
+      if (strcmp (tp [tindex], AND) == 0)
       {
          if (tindex >= 0 && separator [tindex - 1] == ' ')
             separator [tindex - 1] = ',';
       }
-      else if (strcmp (tp [tindex], "then") == 0)
+      else if (strcmp (tp [tindex], THEN) == 0)
       {
          if (tindex >= 0 && separator [tindex - 1] == ' ')
             separator [tindex - 1] = ';';
@@ -2982,7 +2983,7 @@ got_command:
             while (refno < BADWORD && 
                (separator [tindex] == ' ' || separator [tindex] == ','))
             {
-               if (strcmp (tp [tindex], "and") != 0)
+               if (strcmp (tp [tindex], AND) != 0)
                {
                   find_word (&type, &refno, &tadr, 3, 1);
                   if (refno >= BADWORD)
@@ -3006,10 +3007,10 @@ got_command:
          }
       }
 #endif /* ALL and EXCEPT */
-      if (tp [tindex] && strcmp (tp [tindex], "and") == 0 && 
+      if (tp [tindex] && strcmp (tp [tindex], AND) == 0 && 
          separator [tindex] == ' ')
             separator [++tindex] = ',';
-      else
+      else if (separator[tindex] != ';')
       {
 #if STYLE >= 11
          if (value [STATUS] > 1 && 
@@ -3290,6 +3291,60 @@ int key;
    }
 }
 
+#if STYLE >= 11
+
+#include <dirent.h>
+
+#ifdef __STDC__
+int list_saved (int action, char *last_name)
+#else
+int list_saved (action, last_name)
+int action;
+char *last_name;
+#endif
+{
+   int cnt = 0;
+   char buf[16];
+   DIR *dp;
+   struct dirent *de;
+   char *sfx;
+#ifdef CONTEXT
+   if (cgi) return (-1);
+#endif
+   *(buf + 15) = '\0';
+   if (dp = opendir("."))
+   {
+      while (de = readdir (dp))
+      {
+         if (*(de->d_name) != '.' &&
+            strcmp (sfx = de->d_name + strlen(de->d_name) - 4, 
+               ".adv") == 0)
+         {
+            *sfx = '\0';
+            if (action)
+            {
+               if (cnt)         
+                  PRINTF (", ")
+               PRINTF (de -> d_name);
+            }
+            else if (last_name)
+               strncpy (buf, de -> d_name, 15);
+	    cnt++;
+         }
+      }
+      closedir (dp);
+      if (action)
+         PRINTF (".\n")
+      if (last_name && cnt == 1)
+      {
+         value [ARG2] = 0;
+         strcpy (last_name, buf);
+      }
+   }
+   return (cnt);
+}
+#endif
+
 #ifdef __STDC__
 int special (int key, int *var)
 #else
@@ -3345,8 +3400,23 @@ try_again:
             }
             else
             {
+#if STYLE >= 11
+               int cnt = list_saved (0, file_name);
+               if (cnt == 0)
+                  PRINTF (
+   "Can't see any saved games here, but you may know of some elsewhere.\n")
+               else if (cnt == 1)
+               {
+                  goto got_name;
+               }
+               else
+               {
+                  PRINTF ("You have the following saved games: ")
+                  (void) list_saved (1, NULL);
+               }
+#endif
                PRINTF ("\nName of saved game to restore: ");
-            }
+	    }
             getinput (file_name, 16);
             scrchk(1);
 #ifdef DWARVEN
@@ -3359,6 +3429,9 @@ try_again:
                return (0);
             }
          }
+#if STYLE >= 11
+got_name:
+#endif
          (void) make_name (file_name, save_name);
 #endif /* CONTEXT */
          if ((game_file = fopen (save_name, RMODE)) != NULL)
@@ -3858,6 +3931,14 @@ restore_it:
       case 33:  /* Check for existence of a memory save */
 #if STYLE >= 11
          *var = memstore (-1);
+#else
+         *var = 0;
+#endif
+         return (0);
+
+      case 34:  /* List available saved games */
+#if STYLE >= 11
+         *var = list_saved (*var, arg2_word);
 #else
          *var = 0;
 #endif

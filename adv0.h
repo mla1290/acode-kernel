@@ -78,6 +78,8 @@ extern short objbits[];
 extern short placebits[];
 extern short varbits[];
 extern void (*procs[])();
+#define AND "and"
+#define THEN "then"
 #include "adv1.h"
 #ifdef ALL
 extern int value_all;
