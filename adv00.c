@@ -1,5 +1,6 @@
 /* adv00.c: A-code kernel - copyleft Mike Arnautov 1990-2003.
  *
+ * 29 Jun 03   MLA        Eliminated redundant restore mode 966.
  * 27 Jun 03   MLA        BUG: Use separate memory for checking restore!
  * 22 Jun 03   MLA        BUG: Make sure command is lowercased!!!
  * 16 Jun 03   MLA        Bug: Fixed variant bit testing in voc().
@@ -174,9 +175,12 @@
  *                        'isnear' to avoid MSC clashes.
  * 17 Nov 90   MLA        Introduced NOVARARGS compilation symbol
  *                        to cope with a nasty Ultrix compiler.
- * 15 Sep 90   MLA        Initial coding.
+ * 15 Sep 90   MLA        Initial 
+ coding.
  *
  */
+
+#define KVERSION "11.60; MLA, 29 Jun 2003"
 
 #include "adv1.h"
 
@@ -3166,6 +3170,7 @@ int *var;
 {
    static char save_name [32];
    static char *image_base = NULL;
+   static char *image_temp = NULL;
    char *image_ptr;
    char file_name [20];
    FILE *game_file;
@@ -3227,16 +3232,9 @@ try_again:
          }
          (void) make_name (file_name, save_name);
 #endif /* CONTEXT */
-      case 996:
-         if (key == 996)
-         {
-            sprintf (raw_comline, "\nRestoring game '%s'...\n \n", dump_name);
-            PRINTF (raw_comline);
-            (void) make_name (dump_name, save_name);   
-         }
          if ((game_file = fopen (save_name, RMODE)) != NULL)
          {
-            if (key == 2 || key == 999 || key == 997 || key == 996) 
+            if (key == 2 || key == 999 || key == 997) 
                goto restore_it;
             (void) fclose (game_file);
             PRINTF ("\nThere's already a game dumped under that name.\n");
@@ -3253,12 +3251,8 @@ try_again:
             PRINTF ("\nAs you wish...\n");
 #endif /* CONTEXT */
          }
-         if (key == 2 || key == 996)
+         if (key == 2)
          {
-            if (key == 996)
-            {
-               PRINTF ("Failed to open save file!\n \n");
-            }
             *var = 1;
             return (0);
          }
@@ -3398,19 +3392,19 @@ restore_it:
          chksav = 0;
          val = sizeof (value) + sizeof (location) +
                sizeof (objbits) + sizeof (placebits) + sizeof (varbits);
-         if (image_base == NULL)
+         if (image_temp == NULL)
          {
-            image_base = (char *) malloc (val);
-            if (image_base == NULL)
+            image_temp = (char *) malloc (val);
+            if (image_temp == NULL)
                return (0);
          }
-         image_ptr = image_base;
+         image_ptr = image_temp;
 #ifdef DEBUG
          puts ("Reading image...");
 #endif
          (void) fread (&chksav, sizeof (int), 1, game_file);
          (void) fread (tval, 1, sizeof (tval), game_file);
-         (void) fread (image_base, sizeof (int), ltext, game_file);
+         (void) fread (image_temp, sizeof (int), ltext, game_file);
          (void) fread (location, sizeof (int), 
             sizeof (location) / sizeof (int), game_file);
          (void) fread (objbits, sizeof (short), 
@@ -3456,7 +3450,7 @@ restore_it:
          (void) fclose (game_file);
          chksum = 0;
          CHKSUM(tval, sizeof(tval))
-         CHKSUM(image_base, (int)(ltext * sizeof(value[0])))
+         CHKSUM(image_temp, (int)(ltext * sizeof(value[0])))
          CHKSUM(location, sizeof(location))
          CHKSUM(objbits, (lobj - FOBJECT + 1) * OBJSIZE * sizeof(objbits[0]))
          CHKSUM(placebits, (lplace - lobj) * PLACESIZE * sizeof(placebits[0]))
@@ -3477,22 +3471,18 @@ restore_it:
             return (0);
          }
          memcpy (&game_time, tval, sizeof (int));
-         memcpy (value, image_base, (lobj + 1) * sizeof (int));
-         memcpy (value + FPLACE, (int *)image_base + lobj + 1, 
+         memcpy (value, image_temp, (lobj + 1) * sizeof (int));
+         memcpy (value + FPLACE, (int *)image_temp + lobj + 1, 
             (lplace - lobj) * sizeof (int));
-         memcpy (value + FVERB, (int *)image_base + lplace + 1, 
+         memcpy (value + FVERB, (int *)image_temp + lplace + 1, 
             (lverb - lplace) * sizeof (int));
-         memcpy (value + FVARIABLE, (int *)image_base + lverb + 1,
+         memcpy (value + FVARIABLE, (int *)image_temp + lverb + 1,
             (lvar - lverb - 1) * sizeof (int));
-         memcpy (value + FTEXT, (int *)image_base + lvar,
+         memcpy (value + FTEXT, (int *)image_temp + lvar,
             (ltext - lvar + 1) * sizeof (int));
 #ifdef CONTEXT
          if (key == 997) value [CONTEXT] = 2;
 #endif
-#ifdef MOVED
-         if (key == 996)
-            bitmod ('s', STATUS, MOVED);
-#endif /* MOVED */
          *var = 0;
          return (0);
       case 3:          /* Delete saved game */
@@ -3731,7 +3721,7 @@ restore_it:
          }
          return (0);
          
-      case 28:
+      case 28:   /* Spare */
          *var = 1;
          return (0);
          
@@ -3754,6 +3744,10 @@ restore_it:
          }
          return (0);
 
+      case 30:   /* Spare */
+         *var = 1;
+         return (0);
+         
       case 31:   /* Replace ARG2 with what user actually typed */
          *var = 0;
 #if STYLE >= 11
@@ -3871,7 +3865,7 @@ int initialise ()
    if (dump_name == NULL || *dump_name == '\0')
 #endif
    {
-      PRINTF ("\n[A-code kernel version 11.59; MLA, 27 Jun 2003]\n");
+      PRINTF2 ("\n[A-code kernel version %s]\n", KVERSION);
    }
    *data_file = '\0';
    if (SEP != '?')
@@ -4300,10 +4294,6 @@ char **argv;
          tp[0] = dump_name;
          strncpy (arg2_word, dump_name, WORDSIZE);
          *(arg2_word + WORDSIZE - 1) = '\0';
-/*         special (996, &value [STATUS]);
- *         if (value [STATUS])
- *            exit (0);
- */
       }
       else     
       {
@@ -4319,10 +4309,6 @@ char **argv;
       value [ARG3] = -1;
       strncpy (arg2_word, dump_name, WORDSIZE);
       *(arg2_word + WORDSIZE - 1) = '\0';
-/*      special (996, &value [STATUS]);
- *      if (value [STATUS])
- *         exit (0);
- */
    }
    else
    {
