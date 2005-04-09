@@ -1,7 +1,8 @@
 /* adv00.c: A-code kernel - copyleft Mike Arnautov 1990-2005.
  */
-#define KERNEL_VERSION "11.84, MLA - 26 Mar 2005"
+#define KERNEL_VERSION "11.85, MLA - 09 Apr 2005"
 /*
+ * 09 Apr 05   MLA        BUG: allow for voc growth in restoring varbits.
  * 26 Mar 05   MLA        BUG: Fixed UNDO/REDO for the CGI mode.
  * 13 Mar 05   MLA        BUG: Restore computed image length, not real one!
  * 12 Mar 05   MLA        Bug: time_t is long, not int!
@@ -430,6 +431,7 @@ char virgin;
 #define PLACEBIT_SIZE (PLACESIZE * (LPLACE - FPLACE + 1) * sizeof (short))
 #define OFFSET_VARBIT (OFFSET_PLACEBIT + PLACEBIT_SIZE)
 #define VARBIT_SIZE (VARSIZE * (LVARIABLE - FVERB + 1) * sizeof (short))
+#define VRBBIT_SIZE (VARSIZE * (LVERB - FVERB + 1) * sizeof (short))
 #define IMAGE_SIZE (OFFSET_VARBIT + VARBIT_SIZE)
 char IMAGE [IMAGE_SIZE];
 int *value = (int *)IMAGE;
@@ -3871,6 +3873,7 @@ restore_it:
             int plabs = PLACESIZE * (lplace - lobj) * sizeof (short);
             int varbo = plabo + plabs;
             int varbs = VARSIZE * (lvar - lplace) * sizeof (short);
+            int vrbbs = VARSIZE * (lverb - lplace) * sizeof (short);
             CHKSUM(tval, tsiz);
             CHKSUM(scratch, locso)
             CHKSUM(scratch + locso, locss)
@@ -3909,7 +3912,9 @@ restore_it:
             memcpy (location,  scratch + locso, locss);
             memcpy (objbits,   scratch + objbo, objbs);
             memcpy (placebits, scratch + plabo, plabs);
-            memcpy (varbits,   scratch + varbo, varbs);
+            memcpy (varbits,   scratch + varbo, vrbbs);
+            memcpy ((char *)varbits + VRBBIT_SIZE, scratch + varbo + vrbbs, 
+               varbs - vrbbs);
 	 }
 #ifdef CONTEXT
          if (key == 997) value [CONTEXT] = 2;
