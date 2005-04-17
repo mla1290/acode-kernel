@@ -1,7 +1,8 @@
 /* adv00.c: A-code kernel - copyleft Mike Arnautov 1990-2005.
  */
-#define KERNEL_VERSION "11.85, MLA - 09 Apr 2005"
+#define KERNEL_VERSION "11.86, MLA - 17 Apr 2005"
 /*
+ * 17 Apr 05   MLA        BUG: Dump readline buffer on new line.
  * 09 Apr 05   MLA        BUG: allow for voc growth in restoring varbits.
  * 26 Mar 05   MLA        BUG: Fixed UNDO/REDO for the CGI mode.
  * 13 Mar 05   MLA        BUG: Restore computed image length, not real one!
@@ -392,7 +393,9 @@ char *dump_name = NULL;
 #  define putchar(X) glk_put_char(X)
 #else
 #  ifdef READLINE
-#     define putchar(X) *lbp++=X;
+#     define putchar(X) *lbp++=X;if (*(lbp-1)=='\n')\
+              {*lbp='\0';printf(lbuf);lbp=lbuf;}
+
 #  endif
 #endif
 
@@ -4786,7 +4789,9 @@ char **argv;
          if (text_len > 0)
             outbuf (1);
          putchar ('\n');
+#ifndef READLINE
          putchar ('\n');
+#endif /* not READLINE */
       }
       close_files ();
 #ifdef GLK
