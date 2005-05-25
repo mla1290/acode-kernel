@@ -1,7 +1,8 @@
 /* adv00.c: A-code kernel - copyleft Mike Arnautov 1990-2005.
  */
-#define KERNEL_VERSION "11.86, MLA - 17 Apr 2005"
+#define KERNEL_VERSION "11.87, MLA - 25 May 2005"
 /*
+ * 25 May 05   MLA        BUG: Don't gripe for flags in excess of 15!
  * 17 Apr 05   MLA        BUG: Dump readline buffer on new line.
  * 09 Apr 05   MLA        BUG: allow for voc growth in restoring varbits.
  * 26 Mar 05   MLA        BUG: Fixed UNDO/REDO for the CGI mode.
@@ -5169,15 +5170,6 @@ int a3;
          "*** Run-time glitch! Setting flag on a flagless entity %d! ***\n", a2);
       return;
    }
-   if (a2 <= LOBJECT && a3 >= OBJSIZE * 16)
-      printf (
-         "*** GLITCH: object %d flag %d out of range!\n", a2, a3);
-   if (a2 >= FPLACE && a2 <= LPLACE && a3 >= PLACESIZE * 16)
-      printf (
-         "*** GLITCH: place %d flag %d out of range!\n", a2, a3);
-   if (a2 >= FVARIABLE && a2 <= LVARIABLE && a3 >= VARSIZE * 16)
-      printf (
-         "*** GLITCH: variable %d flag %d out of range!\n", a2, a3);
    bitadr = bitword (a2);
    while (a3 > 15)
    {
@@ -5215,16 +5207,6 @@ short *a5;
    if (a2 < 0 || a2 >= a0)
       printf (
          "*** Run-time glitch! Local entity %d >= locals %d! ***\n", a2, a0);
-
-   if (a2 <= LOBJECT && a3 >= OBJSIZE * 16)
-      printf (
-         "*** GLITCH: local object %d flag %d out of range!\n", a2, a3);
-   if (a2 >= FPLACE && a2 <= LPLACE && a3 >= PLACESIZE * 16)
-      printf (
-         "*** GLITCH: local place %d flag %d out of range!\n", a2, a3);
-   if (a2 >= FVARIABLE && a2 <= LVARIABLE && a3 >= VARSIZE * 16)
-      printf (
-         "*** GLITCH: local variable %d flag %d out of range!\n", a2, a3);
 
    if (*(a5 + VARSIZE * a2) == -1)
       bitadr = bitword (*(a4 + a2));
