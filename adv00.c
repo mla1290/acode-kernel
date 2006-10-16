@@ -1,7 +1,10 @@
-/* adv00.c: A-code kernel - copyleft Mike Arnautov 1990-2005.
+/* adv00.c: A-code kernel - copyleft Mike Arnautov 1990-2006.
  */
-#define KERNEL_VERSION "11.87, MLA - 25 May 2005"
+#define KERNEL_VERSION "11.88, MLA - 16 Oct 2006"
 /*
+ * 15 Oct 06   MLA        Reinstated HTML tag handling. 
+ *                        Also added PROMPTED symbol processing.
+ * 30 Jul 05   MLA        Cleaned up compiler warnings.
  * 25 May 05   MLA        BUG: Don't gripe for flags in excess of 15!
  * 17 Apr 05   MLA        BUG: Dump readline buffer on new line.
  * 09 Apr 05   MLA        BUG: allow for voc growth in restoring varbits.
@@ -24,7 +27,7 @@
  * 09 Apr 04   MLA        bug: Don't print kernel version twice if GLK.
  * 14 Mar 04   MLA        BUG: Or for (internal) "-z" ones. And don't leave
  *                        debug statements lying around!!!
- * 28 Feb 04   MLA        BUG: Don't use memstore for CGI -y restires!
+ * 28 Feb 04   MLA        BUG: Don't use memstore for CGI -y restores!
  * 16 Feb 04   MLA        G++ didn't like initialisation of fname in memstore().
  *                        Bug: Initialise rseed before calling p1()!
  * 12 Feb 04   MLA        Reused exec 12.
@@ -299,6 +302,8 @@
 
 #ifdef NEED_UNISTD
 #include <unistd.h>
+#else
+int unlink(char *);
 #endif
 
 #if defined(unix) || defined(__CYGWIN__)
@@ -581,16 +586,20 @@ int titlen;
 int quitting;
 int eol_count = 0;
 #ifdef TAG_START
-   int ignore_tag = 0;
+   int html_tag = 0;
 #endif /* TAG_START */
 char *lp;
 
 #define PRINTF(X)    { char *ptr = X; while (*ptr) outchar(*ptr++); }
 #define PRINTF1(X)   printf(X); if (log_file) (void)fprintf(log_file,X);
 #define PRINTF2(X,Y) printf(X,Y); if (log_file) (void)fprintf(log_file,X,Y);
-#define CHKSUM(X,Y)  for (cptr=(char *)X,cnt=1;cnt<=Y;cnt++,cptr++) \
+#define CHKSUM(X,Y)  for (cptr=(char *)X,cnt=1; \
+                     (unsigned int)cnt<=(unsigned int)Y;cnt++,cptr++) \
                      {chksum+=(*cptr+cnt)*(((int)(*cptr)+cnt)<<4)+Y; \
                      chksum&=07777777777L;} 
+
+/******************************************************************/
+
 #ifdef GLK
 #  include "glk.h"
    static winid_t mainwin = NULL;
@@ -624,6 +633,8 @@ void glkgets (buf, buflen)
 }
 #endif
 
+/*===========================================================*/
+
 #if !defined(NOVARARGS) && defined(__STDC__)
 int anyof (int first, ...)
 {
@@ -645,6 +656,8 @@ int anyof (int first, ...)
     return (0);
 }
 
+/*===========================================================*/
+
 int keyword (int first, ...)
 {
     va_list ap;
@@ -665,6 +678,9 @@ int keyword (int first, ...)
     return (1);
 }
 #else /* not (NOVARARGS && __STDC_)*/
+
+/*===========================================================*/
+
 #ifdef __STDC__
 int anyof (int l0,int l1,int l2,int l3,int l4,int l5,int l6,int l7,
            int l8,int l9,int l10,int l11,int l12,int l13,int l14,int l15)
@@ -707,6 +723,8 @@ int l0,l1,l2,l3,l4,l5,l6,l7,l8,l9,l10,l11,l12,l13,l14,l15;
    if (KEY (l15)) return (1);
    return (0);
 }
+
+/*===========================================================*/
 
 #ifdef __STDC__
 int keyword (int l0,int l1,int l2,int l3,int l4,int l5,int l6,int l7,
@@ -752,6 +770,8 @@ int l0,l1,l2,l3,l4,l5,l6,l7,l8,l9,l10,l11,l12,l13,l14,l15;
 }
 #endif /* NOVARARGS && __STDC__*/
 
+/*===========================================================*/
+
 #ifdef __STDC__
 int irand (int less_then)
 #else
@@ -762,6 +782,8 @@ int less_then;
    rseed = (((rseed << 10) + rseed) / 13) & 32767;
    return (rseed % less_then);
 }
+
+/*===========================================================*/
 
 #ifdef __STDC__
 int jrand (int less_then)
@@ -783,6 +805,8 @@ int less_then;
 #define BT_TXT     4
 #define BT_STP  4096
 #define BT_SIZE *((unsigned short *)(root + 2))
+
+/*===========================================================*/
 
 short *btinit (short *root)
 {
@@ -906,9 +930,7 @@ short *btadd (short *root, char *word, int len)
 {
    int parent = 0;
    int child = *(root + 1);
-   int sib;
    int dir;
-   char *cptr;
    short *new_rec;
    int reclen = BT_TXT  + 1 + len / 2;
 
@@ -973,6 +995,8 @@ int btfind (short *root, char *word)
    return (0);
 }
 
+/*===========================================================*/
+
 #ifdef __STDC__
 void word_update (void)
 #else
@@ -1004,6 +1028,9 @@ void word_update ()
 #if defined(PLAIN) && (defined(MEMORY) || defined(PRELOADED))
 #  define get_char(X) text[X]
 #else /* !PLAIN || (!MEMORY && !PRELOADED)*/
+
+/*===========================================================*/
+
 #ifdef __STDC__
 char get_char (int char_addr)
 #else
@@ -1109,6 +1136,9 @@ gotit:
 }
 
 #if defined(SWAP) || defined(READFILE)
+
+/*===========================================================*/
+
 #ifdef __STDC__
 void file_oops (void)
 #else
@@ -1124,6 +1154,8 @@ void file_oops ()
 #endif /* SWAP || READFILE */
 #endif /* PLAIN && MEMORY */
 /* ENDPRIVATE */
+
+/*===========================================================*/
 
 #ifdef __STDC__
 void voc (int word, int what, int test, int vtext)
@@ -1164,6 +1196,8 @@ int vtext;
       tc = get_char (++ta);
    }
 }
+
+/*===========================================================*/
 
 #ifdef __STDC__
 int scrchk (int clear)
@@ -1208,6 +1242,24 @@ int clear;
 }
 
 #ifdef BLOCK_END
+
+/*===========================================================*/
+
+#ifdef __STDC__
+void outstr(char *str)
+#else
+void outstr(str)
+char *str;
+#endif
+{
+   while (*str)
+      putchar(*str++);
+   return;
+}
+   
+
+/*===========================================================*/
+
 #ifdef __STDC__
 char *doblock (
    char type,
@@ -1274,7 +1326,7 @@ char *tptr;
 
 #ifdef GLK
    glk_set_style (style_Preformatted);
-   hlead = 0;   /* Was 5! */
+   hlead = 2;   /* Was 5! */
 #endif
    while (*tptr && *tptr != BLOCK_END)
    {
@@ -1282,9 +1334,11 @@ char *tptr;
 #ifdef GLK
       tptr += lead;
 #endif
-      if (hlead < 0)
-         tptr += hlead;
-      else if (hlead > 0)
+      if (cgi)
+         tptr += lead;
+      else if (hlead < 0)
+         tptr -= hlead;
+      else if (hlead > 0 && ! cgi)
       {
          for (len = 0; len < hlead; len++)
          {
@@ -1293,32 +1347,33 @@ char *tptr;
       }
       while (*tptr && *tptr != '\n' && *tptr != BLOCK_END)
       {
-         PUTCHARA (tptr);
+         if (cgi && type == BLOCK_START && *tptr == ' ')
+         {
+            if (log_file) (void)fputc(*tptr++, log_file);
+            outstr("&nbsp;");
+            if (*tptr == ' ')
+               outstr("&nbsp;&nbsp;");
+         }
+         else
+         {
+            PUTCHARA (tptr);
+         }
       }
       if (*tptr == '\n')
       {
 #ifdef CONTEXT
-         if (cgi)
-         {
-            if (type == BLOCK_START) 
-               printf ("<block>");
-            else
-               printf ("<br>");
-         }
+         if (cgi && *tptr != BLOCK_END) 
+               printf ("<br />");
 #endif
          PUTCHARA (tptr);
       }
-#if defined(CONTEXT)
-      if (cgi && *tptr == BLOCK_END)
-            printf ("<br>");
-#endif
    }
 #ifdef CONTEXT
    if (cgi)
    {
       if (type == BLOCK_START)
          printf ("</td></tr></table>");
-      printf ("</center>\n");
+      printf ("</center>");
    }
 #endif
 #ifdef GLK
@@ -1330,6 +1385,8 @@ char *tptr;
    return (tptr);
 }
 #endif /* BLOCK_END */
+
+/*===========================================================*/
 
 #ifdef __STDC__
 void outbuf (int terminate)
@@ -1348,7 +1405,10 @@ int terminate;
    char lastchar = '\0';
    char text_char;
    int frag;
-   
+#ifdef BLOCK_START
+   int line_break = 1;
+#endif
+
    eol_count = 0;
    frag = 1;
  
@@ -1403,7 +1463,7 @@ int terminate;
       word_update ();
 #endif /* STYLE */
 
-   while (text_char = *tptr++)
+   while ((text_char = *tptr++))
    {
       if (text_char == IGNORE_EOL)
       {
@@ -1428,12 +1488,12 @@ int terminate;
       }
       else
          line_len++;
-         
 
 #ifdef BLOCK_START
       if (text_char == BLOCK_START || text_char == CENTRE_START)
       {
          lptr = tptr = doblock (text_char, tptr);
+           line_break = 0;
          if ((text_char = *tptr++) == '\0')
             break;
          line_len = 0;
@@ -1447,7 +1507,6 @@ int terminate;
          if (line_len > 0)
          {
             lptr = outline (lptr, line_len, 0, 0);
-/*            if (lptr == NULL) return; */
             line_len = 0;
             tptr = lptr;
          }
@@ -1461,8 +1520,10 @@ int terminate;
          lastchar = ' ';
          line_len = 0;
          wrapped = 0;
-#ifdef CONTEXT
-         if (cgi) printf ("<br>");
+#ifdef BLOCK_START
+         if (cgi && line_break)
+            printf ("<br />");
+         line_break = 1;
 #endif
          continue;
       }
@@ -1544,6 +1605,9 @@ int terminate;
 #define VALUE_FLAG     1
 
 #ifdef NEST_TEXT
+
+/*===========================================================*/
+
 #ifdef __STDC__
 void nested_say (int addr, int key, int qualifier)
 #else
@@ -1587,6 +1651,8 @@ int qualifier;
    ta = addr;
 }
 #endif /* NEST_TEXT */
+
+/*===========================================================*/
 
 #ifdef __STDC__
 void say (int key, int what, int qualifier)
@@ -1881,6 +1947,8 @@ shutup:
    return;
 }
 
+/*===========================================================*/
+
 #ifdef __STDC__
 void outchar (int text_char)
 #else
@@ -1888,19 +1956,39 @@ void outchar (text_char)
 int text_char;
 #endif
 {
-#ifdef TAG_START
-   if (ignore_tag)
+   if (text_len == text_buf_len - 8)
    {
-      if (text_char == TAG_END)
-         ignore_tag = 0;
-      return;
+      text_buf_len += 1024;
+      if ((text_buf = (char *) realloc (text_buf, text_buf_len)) == NULL)
+      {
+         puts ("*** Unable to extend text buffer! ***");
+         exit (0);
+      }
+      lptr = text_buf + text_len;
    }
+
+#ifdef TAG_START
    if (text_char == TAG_START)
    {
-      ignore_tag = 1;
+      html_tag = 1;
+      if (cgi)
+         *lptr++ = '<';
       return;
    }
+   else if (html_tag)
+   {
+      if (text_char == TAG_END)
+      {
+         html_tag = 0;
+         if (cgi)
+            *lptr++ = '>';
+         return;
+      }
+   }
+   if (html_tag && cgi == 0)
+      return;
 #endif /* TAG */
+
    if (text_char == '\n')
    {
       eol_count++;
@@ -1916,9 +2004,18 @@ int text_char;
 
 #ifdef NBSP
    if (text_char == NBSP)
-      text_char = ' ';
+   {
+      if (cgi)
+      {
+         strcpy(lptr, "&nbsp;");
+         lptr += 6;
+         return;
+      }
+      else
+         text_char = ' ';
+   }
 #endif /* NBSP */
-      
+
 #if STYLE >= 11
    if (isalpha (text_char))
    {
@@ -1932,16 +2029,6 @@ int text_char;
       upcase = 1;
 #endif /* STYLE >= 11 */
 
-   if (text_len == text_buf_len - 3)
-   {
-      text_buf_len += 1024;
-      if ((text_buf = (char *) realloc (text_buf, text_buf_len)) == NULL)
-      {
-         puts ("*** Unable to extend text buffer! ***");
-         exit (0);
-      }
-      lptr = text_buf + text_len;
-   }
 #ifdef CONTEXT
    if (cgi && (text_char == '<' || text_char == '>'))
    {
@@ -1969,6 +2056,9 @@ int text_char;
 }
 
 #ifdef UNDO
+
+/*===========================================================*/
+
 #ifdef __STDC__
 void save_changes (void)
 #else
@@ -1977,7 +2067,7 @@ void save_changes ();
 {
    char *iptr;
    char *optr;
-   int cnt;
+   unsigned int cnt;
    int some = 0;
 
    if (value [ARG1] >= BADWORD || value [ARG2] >= BADWORD ||
@@ -2044,6 +2134,8 @@ void save_changes ();
 }
 #endif /* UNDO */
 
+/*===========================================================*/
+
 #ifdef __STDC__
 void getinput (char *inbuf, int insize)
 #else
@@ -2076,6 +2168,9 @@ int insize;
 #endif /* UNDO */
 
 #ifdef CONTEXT
+#  ifdef PROMPTED
+   bitmod ('s', CONTEXT, PROMPTED);
+#  endif
    if (cgi == 'x' || cgi == 'z')
    {
       special (998, &value [0]);
@@ -2159,6 +2254,8 @@ int insize;
       fprintf (log_file,"\nREPLY: %s\n", inbuf);
 }
 
+/*===========================================================*/
+
 #ifdef __STDC__
 char *outline (char *aptr, int char_count, int break_count, int fill)
 #else
@@ -2179,7 +2276,7 @@ int fill;
 
    if (text_len - (lptr - text_buf) >= Maxlen && scrchk (0) != 0)
       return lptr;
-   if (need = Margin)
+   if ((need = Margin))
       while (need--)
          PUTCHAR (' ');
    if (break_count <= 0 || fill == 0 || char_count == Maxlen)
@@ -2225,6 +2322,8 @@ int fill;
    return (aptr);
 }
 
+/*===========================================================*/
+
 #ifdef __STDC__
 void advcpy (char *word_buff, int word_addr)
 #else
@@ -2241,6 +2340,8 @@ int word_addr;
       if ((*word_buff++ = get_char (word_addr++)) == '\0')
          return;
 }
+
+/*===========================================================*/
 
 #ifdef __STDC__
 void fake (int which_arg, int refno)
@@ -2264,6 +2365,8 @@ int refno;
    strcpy (which_arg == 1 ? arg1_word : arg2_word, "*GLITCH*");
    return;
 }
+
+/*===========================================================*/
 
 #ifdef __STDC__
 void default_to (int key, int place, int type)
@@ -2364,6 +2467,9 @@ failed:
 
 #if STYLE >= 11
 #ifdef TYPO
+
+/*===========================================================*/
+
 #ifdef __STDC__
 void report_typo (int ovoc, int olen)
 #else
@@ -2384,7 +2490,7 @@ int olen;
    *(orig + olen) = '\0';
    say (QUAL_FLAG, TYPO, ORIG);
    *(orig + olen) = save_char;
-   if (olen >= strlen (orig)) 
+   if ((unsigned int)olen >= strlen (orig)) 
       value [TYPO]++;
    else
       say (QUAL_FLAG, TYPO, ORIG);
@@ -2393,6 +2499,8 @@ int olen;
    PRINTF("\n\n");
 }
 #endif
+
+/*===========================================================*/
 
 #ifdef __STDC__
 void find_word (int *type, int *refno, int *tadr, int which_arg, int gripe)
@@ -2405,6 +2513,8 @@ int which_arg;
 int gripe;
 #endif
 #else
+/*===========================================================*/
+
 #ifdef __STDC__
 void find_word (int *type, int *refno, int *tadr, int which_arg)
 #else
@@ -2710,6 +2820,8 @@ done:
    return;
 }
 
+/*===========================================================*/
+
 #ifdef __STDC__
 void parse (void)
 #else
@@ -2875,6 +2987,8 @@ void parse ()
 }
 
 
+/*===========================================================*/
+
 #ifdef __STDC__
 void input (int textref)
 #else
@@ -2946,6 +3060,9 @@ int textref;
       value [ARG2] = -1;
       outchar ('\n');
    }
+#  ifdef PROMPTED
+   bitmod ('c', CONTEXT, PROMPTED);
+#  endif
 
 restart:
    if (tp [tindex] == NULL)
@@ -3234,6 +3351,8 @@ got_command:
    return;
 }
 
+/*===========================================================*/
+
 #ifdef __STDC__
 int query (int textref)
 #else
@@ -3272,6 +3391,8 @@ try_again:
    goto try_again;
 }
 
+/*===========================================================*/
+
 #ifdef __STDC__
 void make_name (char *file_name, char *save_name)
 #else
@@ -3309,6 +3430,8 @@ char *save_name;
       (void) strcat (save_name, ".adv");
    return;
 }
+
+/*===========================================================*/
 
 #ifdef __STDC__
 int check_version (FILE *infile)
@@ -3353,6 +3476,8 @@ FILE *infile;
    return (0);
 }
 
+/*===========================================================*/
+
 #ifdef __STDC__
 void close_files (void)
 #else
@@ -3375,6 +3500,8 @@ void close_files ()
    if (word_buf) free (word_buf);
 #endif
 }
+
+/*===========================================================*/
 
 #ifdef __STDC__
 int memstore (int key)
@@ -3470,6 +3597,8 @@ int key;
 
 #include <dirent.h>
 
+/*===========================================================*/
+
 #ifdef __STDC__
 int list_saved (int action, char *last_name)
 #else
@@ -3487,9 +3616,9 @@ char *last_name;
    if (cgi) return (-1);
 #endif
    *(buf + 15) = '\0';
-   if (dp = opendir("."))
+   if ((dp = opendir(".")))
    {
-      while (de = readdir (dp))
+      while ((de = readdir (dp)))
       {
          if (*(de->d_name) != '.' &&
             strcmp (sfx = de->d_name + strlen(de->d_name) - 4, 
@@ -3519,6 +3648,8 @@ char *last_name;
    return (cnt);
 }
 #endif
+
+/*===========================================================*/
 
 #ifdef __STDC__
 int special (int key, int *var)
@@ -3552,7 +3683,9 @@ int *var;
       case 1:          /* Dump game to disc */
       case 2:          /* Restore game from disc */
          val = value [ARG2];
+#ifndef CONTEXT
 try_again:
+#endif
          if (val >= 0)
          {
             if (*long_word && 
@@ -3714,7 +3847,7 @@ got_name:
          if (value [UNDO_STAT] >= 0 && diffs && (diffs < dptr || cgi))
          {
             strcpy (save_name + strlen(save_name) - 3, "adh");
-            if ((diffs && dptr > diffs + 4 || (cgi && value [CONTEXT] <= 1)) &&
+            if (((diffs && dptr > diffs + 4) || (cgi && value [CONTEXT] <= 1)) &&
                (game_file = fopen (save_name, WMODE)))
             {
                int len = dptr - diffs;
@@ -3928,7 +4061,7 @@ restore_it:
          if (value [UNDO_STAT] >= 0)
          {
             strcpy (save_name + strlen(save_name) - 3, "adh");
-            if (game_file = fopen (save_name, RMODE))
+            if ((game_file = fopen (save_name, RMODE)))
             {
                int len;
                int diflen = len;
@@ -3968,7 +4101,7 @@ restore_it:
          *var = unlink (save_name);
  if (*var)
  {
-   printf ("Failed: %s - error code: $d<br />\n", save_name, *var);
+   printf ("Failed: %s - error code: %d<br />\n", save_name, *var);
    system ("pwd");
  }
          strcpy (save_name + strlen(save_name) - 3, "adh");
@@ -4014,7 +4147,7 @@ restore_it:
             fclose (gv_file);
          return (0);
       case 15:         /* Note that he meditated, as he should */
-         if (gv_file = fopen ("adv.vrg", WMODE))
+         if ((gv_file = fopen ("adv.vrg", WMODE)))
             fclose (gv_file);
          return (0);
 /*    case 16: */        /* Spare */
@@ -4184,6 +4317,9 @@ restore_it:
 }
 
 #ifdef USEDB
+
+/*===========================================================*/
+
 #ifdef __STDC__
 void create_db (char *dbfile)
 #else
@@ -4233,6 +4369,8 @@ char *dbfile;
    printf ("\n(Database %s created...)\n", DBNAME);
 }
 #endif /* USEDB */
+
+/*===========================================================*/
 
 #ifdef __STDC__
 int initialise (void)
@@ -4309,7 +4447,8 @@ int initialise ()
       }
       else if (ptr)
       { 
-         if (len > sizeof (data_file) - 13) len = sizeof (data_file) - 13;
+         if ((unsigned int)len > sizeof (data_file) - 13) 
+            len = sizeof (data_file) - 13;
          strncpy (data_file, exec, len);
       }
 #endif /* USEDB */
@@ -4320,7 +4459,7 @@ int initialise ()
 
    if ((text_file = fopen (data_file, RMODE)) == NULL)
    {
-      if (text_file = fopen ("adv6.h", RMODE))
+      if ((text_file = fopen ("adv6.h", RMODE)))
          (void) create_db (data_file);
       else
       {
@@ -4410,10 +4549,11 @@ int initialise ()
 #ifdef CONTEXT
       if (cgi == 0 || cgi == 'x')
 #endif /* CONTEXT */
-         (void) fprintf (log_file, "%s: %lu\n", GAMEID, mainseed);
+         (void) fprintf (log_file, "%s: %u\n", GAMEID, mainseed);
    }
 
-   for (index = 0; index < sizeof (voc_refno) / sizeof (voc_refno [0]);
+   for (index = 0; (unsigned int)index < 
+                             sizeof (voc_refno) / sizeof (voc_refno [0]);
          index++)
       if (voc_refno [index] < 0)
       {
@@ -4486,6 +4626,8 @@ typedef struct glkunix_startup_struct {
     char **argv;
 } glkunix_startup_t;
 
+/*===========================================================*/
+
 #ifdef __STDC__
 int glkunix_startup_code(glkunix_startup_t *data)
 #else
@@ -4514,6 +4656,9 @@ glkunix_argumentlist_t glkunix_arguments[] =
 #endif /* unix || linux || XGLK */
 void glk_main (void)
 #else
+
+/*===========================================================*/
+
 #  ifdef __STDC__
 int main (int argc, char **argv)
 #  else
@@ -4811,6 +4956,8 @@ char **argv;
    }
 }
 
+/*===========================================================*/
+
 #ifdef __STDC__
 int have (int l1,int l2,int l3)
 #else
@@ -4831,6 +4978,8 @@ int l3;
       if (bitest (l1, l3)) return (1);
    return (0);
 }
+
+/*===========================================================*/
 
 #ifdef __STDC__
 int isat (int l1,int l2,int l3, int l4)
@@ -4860,6 +5009,8 @@ int l4;
    return (0);
 }
 
+/*===========================================================*/
+
 #ifdef __STDC__
 int ishere (int l1,int l2,int l3)
 #else
@@ -4871,6 +5022,8 @@ int l3;
 {
    return (isat (l1, l2, l3, value [HERE]));
 }
+
+/*===========================================================*/
 
 #ifdef __STDC__
 int isnear (int l1,int l2,int l3)
@@ -4885,6 +5038,8 @@ int l3;
    if (ishere (l1,l2,l3)) return (1);
    return (0);
 }
+
+/*===========================================================*/
 
 #if !defined(NOVARARGS) && defined(__STDC__)
 void move (int a1, int a2, ...)
@@ -4911,6 +5066,9 @@ void move (int a1, int a2, ...)
 gothere:
    va_end (ap);
 #else /* not (NOVARARGS && __STDC__)*/
+
+/*===========================================================*/
+
 #ifdef __STDC__
 void move (int a1,int a2,int a3,int a4,int a5,int a6,int a7,int a8,
            int a9,int a10,int a11,int a12,int a13,int a14,int a15,int a16)
@@ -4975,6 +5133,8 @@ gothere:
    return;
 }
 
+/*===========================================================*/
+
 #ifdef __STDC__
 void apport (int l1,int l2)
 #else
@@ -4989,6 +5149,8 @@ int l1,l2;
    location [l1] =  (l2 <= LPLACE || l2 == INHAND) ? l2 : value [l2];
    return;
 }
+
+/*===========================================================*/
 
 #ifdef __STDC__
 void set (char t1, int v1, char t2, int v2, int *lv, short *lb)
@@ -5027,15 +5189,7 @@ short *lb;
    }
 }
 
-#ifdef __STDC__
-void lset (int l1, int l2, int l3)
-#else
-void lset (l1, l2, l3)
-int l1,l2,l3;
-#endif
-{
-   
-}
+/*===========================================================*/
 
 #ifdef __STDC__
 void lda (int l1, int l2)
@@ -5050,6 +5204,8 @@ int l1,l2;
    return;
 }
 
+/*===========================================================*/
+
 #ifdef __STDC__
 void eval (int l1, int l2)
 #else
@@ -5060,6 +5216,8 @@ int l1,l2;
    value [l1] = value [value [l2]];
    return;
 }
+
+/*===========================================================*/
 
 #ifdef __STDC__
 void deposit (int l1, int l2)
@@ -5072,6 +5230,8 @@ int l1,l2;
        value [l2];
     return;
 }
+
+/*===========================================================*/
 
 #ifdef __STDC__
 void locate (int l1, int l2)
@@ -5086,6 +5246,8 @@ int l1,l2;
    return;
 }
 
+/*===========================================================*/
+
 #ifdef __STDC__
 int evar (int l1)
 #else
@@ -5098,6 +5260,8 @@ int l1;
    else
       return l1;
 }
+
+/*===========================================================*/
 
 #ifdef __STDC__
 int levar (int l1, int *l2, short *l3)
@@ -5113,6 +5277,8 @@ short *l3;
    else
       return l1;
 }
+
+/*===========================================================*/
 
 #ifdef __STDC__
 void finita (void)
@@ -5134,6 +5300,8 @@ void finita ()
    longjmp (loop_back, 1);
 }
 
+/*===========================================================*/
+
 #ifdef __STDC__
 short *bitword (int a1)
 #else
@@ -5152,6 +5320,8 @@ int a1;
       adr = &varbits [VARSIZE * (a1 - FVERB)];
    return (adr);
 }
+
+/*===========================================================*/
 
 #ifdef __STDC__
 void bitmod (char a1, int a2, int a3)
@@ -5183,6 +5353,8 @@ int a3;
    return;
 }
       
+/*===========================================================*/
+
 #ifdef __STDC__
 void lbitmod (int a0, char a1, int a2, int a3, int *a4, short *a5)
 #else
@@ -5225,6 +5397,8 @@ short *a5;
    return;
 }
       
+/*===========================================================*/
+
 #ifdef __STDC__
 int bitest (int a1, int a2)
 #else
@@ -5234,7 +5408,6 @@ int a2;
 #endif
 {
    short *bitadr;
-   int bit = a2;
    
    if (a1 > LVARIABLE)
       return (0);
@@ -5250,6 +5423,8 @@ int a2;
    }
    return (*bitadr & 1 << a2);
 }
+
+/*===========================================================*/
 
 #ifdef __STDC__
 int lbitest (int a1, int a2, int *a3, short *a4)
@@ -5276,6 +5451,8 @@ short *a4;
    return (*bitadr & 1 << a2);
 }
 
+/*===========================================================*/
+
 #ifdef __STDC__
 void flush_command (void)
 #else
@@ -5286,6 +5463,8 @@ void flush_command ()
    tp [tindex] = NULL;
    return;
 }
+
+/*===========================================================*/
 
 #ifdef __STDC__
 void shift_up (char *aptr)
@@ -5299,6 +5478,9 @@ char *aptr;
    else if (*aptr == 'z' || *aptr == 'Z')
       *aptr -= 25;
 }
+
+/*===========================================================*/
+
 #ifdef __STDC__
 void shift_down (char *aptr, int maxlen)
 #else
@@ -5319,6 +5501,8 @@ int maxlen;
    if (log_file) fprintf (log_file, "TRANSLATION: %s\n", sptr);
 }
 
+/*===========================================================*/
+
 #ifdef __STDC__
 void tie (int text, int holder)
 #else
@@ -5330,6 +5514,8 @@ int holder;
    text_info [2 * (text - FTEXT)] = TIED_TEXT;
    value [text] = holder;
 }
+
+/*===========================================================*/
 
 #ifdef __STDC__
 void svar (int type, int *var)
@@ -5356,6 +5542,8 @@ int *var;
    return;
 }
 
+/*===========================================================*/
+
 #ifdef __STDC__
 void glue_text (void)
 #else
@@ -5365,6 +5553,8 @@ void glue_text();
 /* Convert last message output into a fragment */
    while (*(lptr - 1) == '\n') lptr--;
 }
+
+/*===========================================================*/
 
 #ifdef __STDC__
 void verbatim (int arg)
@@ -5382,6 +5572,8 @@ int arg;
       (void) PRINTF2 ("GLITCH! Bad ARGn indicator: %d\n", arg);
    }
 }
+
+/*===========================================================*/
 
 #ifdef __STDC__
 int test (char *type)
@@ -5403,6 +5595,9 @@ char *type;
    return (0);
 }
 #ifdef UNDO
+
+/*===========================================================*/
+
 #ifdef __STDC__
 int checkdo (void)
 #else
@@ -5439,6 +5634,8 @@ int checkdo ()
    return (val);
 }
 
+/*===========================================================*/
+
 #ifdef __STDC__
 int inv_check (int mode)
 #else
@@ -5460,6 +5657,8 @@ int mode;
    }
    return (0);
 }
+
+/*===========================================================*/
 
 #ifdef __STDC__
 void  undo (void)
@@ -5505,6 +5704,8 @@ void undo ()
    bitmod (cnt > acnt ? 's' : 'c', UNDO_STAT, UNDO_TRIM);
    return;
 }
+
+/*===========================================================*/
 
 #ifdef __STDC__
 void redo (void)
@@ -5552,3 +5753,5 @@ void redo ()
    bitmod (cnt > acnt ? 's' : 'c', UNDO_STAT, UNDO_TRIM);
 }
 #endif /* UNDO */
+
+/*************************************************************/
