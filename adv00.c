@@ -1,7 +1,8 @@
 /* adv00.c: A-code kernel - copyleft Mike Arnautov 1990-2006.
  */
-#define KERNEL_VERSION "11.88, MLA - 16 Oct 2006"
+#define KERNEL_VERSION "11.89, MLA - 11 Feb 2007"
 /*
+ * 11 Feb 07   MLA        Added -B for baudrate.
  * 15 Oct 06   MLA        Reinstated HTML tag handling. 
  *                        Also added PROMPTED symbol processing.
  * 30 Jul 05   MLA        Cleaned up compiler warnings.
@@ -300,8 +301,8 @@
 #include <stdarg.h>
 #include <string.h>
 
-#ifdef NEED_UNISTD
-#include <unistd.h>
+#if defined(NEED_UNISTD)
+#  include <unistd.h>
 #else
 int unlink(char *);
 #endif
@@ -1352,7 +1353,7 @@ char *tptr;
             if (log_file) (void)fputc(*tptr++, log_file);
             outstr("&nbsp;");
             if (*tptr == ' ')
-               outstr("&nbsp;&nbsp;");
+               outstr("&nbsp;");
          }
          else
          {
@@ -2318,7 +2319,6 @@ int fill;
       printf (lbuf);
    lbp = lbuf;      
 #endif
-   fflush (stdout);
    return (aptr);
 }
 
@@ -4751,7 +4751,7 @@ char **argv;
             if (undo_def != -2)
                printf ("    -u {on|off|forbid}  override default UNDO status\n");
 #endif /* UNDO */
-            printf ("    -h                  print this usage summary\n");
+            printf ("    -h                  print this usage summary\n\n");
             exit (0);
          }
          if (--argc == 0) break;
@@ -4782,7 +4782,7 @@ char **argv;
                }
                Maxlen = Linlen - 2 * Margin;
                break;
-
+               
 #ifdef USEDB
             case 'd':
                dbs_dir = opt;
