@@ -1,8 +1,8 @@
 /* adv00.c: A-code kernel - copyleft Mike Arnautov 1990-2006.
  */
-#define KERNEL_VERSION "11.89, MLA - 11 Feb 2007"
+#define KERNEL_VERSION "11.90, MLA - 08 Apr 2007"
 /*
- * 11 Feb 07   MLA        Added -B for baudrate.
+ * 08 Apr 07   MLA        Added -o for output speed in cps (chars per second).
  * 15 Oct 06   MLA        Reinstated HTML tag handling. 
  *                        Also added PROMPTED symbol processing.
  * 30 Jul 05   MLA        Cleaned up compiler warnings.
@@ -581,6 +581,28 @@ int text_buf_len = 4096;
 char *lptr;
 int text_len = 0;
 int location_all;
+#if !defined(NOSLOW) && !defined(SLOW)
+#  define SLOW
+#endif
+#if defined(READLINE) || defined(GLK)
+#  ifdef SLOW
+#     undef SLOW
+#  endif
+#endif
+
+#if defined(DOS) || defined(_WIN32)
+#else
+#endif
+#ifdef SLOW
+   int cps = 0;
+#  if defined(DOS) || defined(_WIN32)
+#     define usleep(X) SleepEx(X, 0)
+#  else
+#     if ! defined(NEED_UNISTD)
+         void usleep(int);
+#     endif
+#  endif
+#endif
 int type_all;
 char title [80];
 int titlen;
@@ -1543,7 +1565,6 @@ int terminate;
             while (*tptr == ' ')
                tptr++;
             lptr = outline (lptr, break_point, break_count, 1);
-/*            if (lptr == NULL) return; */
             break_point = 0;
             break_count = -1;
             PUTCHAR ('\n');
@@ -2273,17 +2294,36 @@ int fill;
    int need;
    int break_point;
    char lastchar;
+#ifdef SLOW
+   int ccnt = 0;
+#endif
    static int flip_flop = 1;
 
    if (text_len - (lptr - text_buf) >= Maxlen && scrchk (0) != 0)
       return lptr;
    if ((need = Margin))
       while (need--)
+      {
          PUTCHAR (' ');
+      }
    if (break_count <= 0 || fill == 0 || char_count == Maxlen)
       while (char_count-- > 0)
       {
+#ifdef SLOW
+         if (cps)
+         {
+            ccnt++;
+            usleep(cps);
+            PUTCHARA (aptr);
+            fflush (stdout);
+	 }
+	 else
+	 {
+	    PUTCHARA (aptr);
+	 }
+#else
          PUTCHARA (aptr);
+#endif /* SLOW */
       }
    else
    {
@@ -2303,6 +2343,10 @@ int fill;
             index = base;
             while (index-- > 0)
             {
+#ifdef SLOW
+               if (cps)
+                  ccnt++;
+#endif
                PUTCHAR (' ');
             }
             if (--break_point ==0)
@@ -2310,7 +2354,21 @@ int fill;
          }
          lastchar = *aptr;
 
+#ifdef SLOW
+         if (cps)
+         {
+            ccnt++;
+            usleep(cps);
+            PUTCHARA (aptr);
+            fflush (stdout);
+	 }
+	 else
+	 {
+	    PUTCHARA (aptr);
+	 }
+#else
          PUTCHARA (aptr);
+#endif /* SLOW */
       }
    }
 #ifdef READLINE
@@ -2318,6 +2376,9 @@ int fill;
    if (*aptr)
       printf (lbuf);
    lbp = lbuf;      
+#endif
+#ifdef SLOW
+   fflush (stdout);
 #endif
    return (aptr);
 }
@@ -4730,6 +4791,8 @@ char **argv;
             end_pause = 1 - end_pause;
             continue;
          }
+         else if (*kwrd == 'o')
+            cps = 30;
          else if (*kwrd == 'l')
             log_wanted = 1;
          else if (*kwrd == 'h')
@@ -4739,6 +4802,9 @@ char **argv;
             printf ("    -w                  invert default wrap/justify setting\n");
             printf ("    -b                  invert default setting for blank lines around prompt\n");
             printf ("    -s <W>x<H>[-<M>]    set screen size and margin\n");
+#ifndef READLINE
+            printf ("    -o [<baudrate>]     set output speed for authentic experience\n");
+#endif
             printf ("    -p                  invert default setting for pause before exiting\n");
 #endif /* GLK */
 #ifdef USEDB
@@ -4765,6 +4831,19 @@ char **argv;
          opt = *argv;
          switch (*kwrd)
          {
+#ifdef SLOW
+            case 'o':
+               cps = (atoi (opt)) / 10;
+                    if (cps >= 960) cps = 960;
+               else if (cps >= 480) cps = 480;
+               else if (cps >= 240) cps = 240;
+               else if (cps >= 120) cps = 120;
+               else if (cps >=  60) cps =  60;
+               else if (cps >=  30) cps =  30;
+               else                 cps =  11;
+               break;
+#endif /* SLOW */
+
             case 's':
                val = strtol (opt, &cptr, 10);
                if (val == 0) val = 32767;
@@ -4833,6 +4912,17 @@ char **argv;
 #ifdef READLINE
    lbuf = (char *)malloc(2 * Maxlen + 1);
    lbp = lbuf;
+   cps = 0;
+#endif
+#ifdef SLOW
+   if (cgi)
+      cps = 0;
+   if (cps)
+#  if defined(DOS) || defined(_WIN32)
+      cps = 1000/cps;
+#  else
+      cps = 1000000/cps;
+#  endif
 #endif
 #ifdef CONTEXT
    if (cgi) compress = 1;
@@ -4853,6 +4943,7 @@ char **argv;
    }
 
 #ifdef GLK
+   cps = 0;
    glk_stylehint_set (wintype_TextBuffer, style_Normal, 
       stylehint_Justification, stylehint_just_LeftFlush);
    glk_set_style (style_Normal);
