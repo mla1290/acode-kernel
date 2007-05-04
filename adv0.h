@@ -1,4 +1,7 @@
-/* adv0.h: A-code kernel - copyleft Mike Arnautov 1990-2005. */
+/* adv0.h: A-code kernel - copyleft Mike Arnautov 1990-2007.
+ *
+ * 01 May 07   S. Munro       Bug: Added STDC definition of procs[]().
+ */
 
 #ifdef FILE
 #  undef FILE
@@ -45,6 +48,7 @@ extern int memstore (int);
 extern int test (char *);
 extern void undo (void);
 extern void redo (void);
+extern void (*procs[])(void);
 #else
 extern void say ();
 extern int query ();
@@ -82,6 +86,7 @@ extern int memstore ();
 extern int test();
 extern void undo();
 extern void redo();
+extern void (*procs[])();
 #endif
 extern jmp_buf loop_back;
 extern int *value;
@@ -89,7 +94,6 @@ extern int *location;
 extern short *objbits;
 extern short *placebits;
 extern short *varbits;
-extern void (*procs[])();
 #define AND "and"
 #define THEN "then"
 #include "adv1.h"
