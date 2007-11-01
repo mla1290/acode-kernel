@@ -1,7 +1,9 @@
 /* adv00.c: A-code kernel - copyleft Mike Arnautov 1990-2007.
  */
-#define KERNEL_VERSION "11.92, MLA - 04 May 2007"
+#define KERNEL_VERSION "11.93, MLA - 01 Nov 2007"
 /*
+ * 01 Nov 07   MLA        Finess the AND separator if amatching suppressed.
+ * 14 May 07   MLA        Split off M$ specific code to adv01.c.
  * 04 May 07   MLA        Added MS-specific code for usleep and list_saved.
  * 03 May 07   S.Munro    Define unlink as _unlink for WIN32.
  *                        bug: Initialise len when saving history.
@@ -231,6 +233,8 @@
  *
  */
 
+/* Remember that adv1.h and all the symbol fiddling must precede adv0.h! */
+
 #include "adv1.h"
 
 #ifdef USEDB
@@ -300,6 +304,8 @@
 #  define USEDB
 #endif
 
+#include "adv0.h"
+
 #include <stdio.h>
 #include <time.h>
 #include <ctype.h>
@@ -355,11 +361,11 @@
 #ifdef __STDC__
 void shift_up (char *);
 void shift_down (char *, int);
-int list_saved (int, char *);
+extern int list_saved (int, char *);
 #else
 void shift_up();
 void shift_down();
-int list_saved();
+extern int list_saved();
 #endif
 #ifdef READLINE
 #include <readline/readline.h>
@@ -382,7 +388,6 @@ FILE *com_file = NULL;
 char *com_name = NULL;
 char *dump_name = NULL;
 
-#include "adv0.h"
 #ifndef USEDB
 #  include "adv6.h"
 #endif /* ! USEDB */
@@ -606,9 +611,9 @@ int location_all;
    int cps = 0;
 #  if (defined(DOS) || defined(_WIN32)) && !defined(DJGPP)
 #     ifdef __STDC__
-         void my_usleep (int);
+         extern void my_usleep (int);
 #     else
-         void my_usleep();
+         extern void my_usleep();
 #     endif
 #     define usleep(X) my_usleep(X)
 #  else
@@ -2973,8 +2978,13 @@ void parse ()
             cptr++;
       separator [tindex + 1] = *cptr;
       *cptr++ = '\0';
+/* Convert ANDs into comma separators *unless* approsimate matching is
+ * suppressed, in which case we just discard the AND -- the latter
+ * is an Adv770 specific fudge to allow a sensible response to
+ * REST AND CONTEMPLATE in the "little joke" stage of the game.
+ */
       if (strcmp (tp [tindex], AND) == 0)
-         separator [tindex] = ',';
+         separator [tindex] = value [STATUS] < 90 ? ',' : ' ';
       else if (strcmp (tp [tindex], THEN) == 0)
          separator [tindex] = ';';
       else
@@ -3662,18 +3672,27 @@ try_again:
             else
             {
 #if STYLE >= 11
-               int cnt = list_saved (0, file_name);
+               int cnt = -1;
+#ifdef ADVCONTEXT
+               if (!cgi)
+#endif /* ADVCONTEXT */
+                  cnt = list_saved (0, file_name);
+ fprintf(stderr, "Returned count: %d\n", cnt);
                if (cnt == 0)
                   PRINTF (
    "Can't see any saved games here, but you may know of some elsewhere.\n")
                else if (cnt == 1)
                {
+                  value [ARG2] = strlen(file_name);
                   goto got_name;
                }
                else
                {
                   PRINTF ("You have the following saved games: ")
-                  (void) list_saved (1, NULL);
+#ifdef ADVCONTEXT
+                  if (! cgi)
+#endif /* ADVCONTEXT */
+                     (void) list_saved (1, NULL);
                }
 #endif
                PRINTF ("\nName of saved game to restore: ");
@@ -4260,6 +4279,7 @@ restore_it:
       case 34:  /* List available saved games */
 #if STYLE >= 11
          *var = list_saved (*var, arg2_word);
+         value [ARG2] = strlen (arg2_word);
 #else
          *var = 0;
 #endif
@@ -4376,7 +4396,7 @@ int initialise ()
       if (ptr)
       {
          ptr++;
-         len = ptr - exec;
+         len = (int)(ptr - exec);
       }
       else
       {
@@ -4523,46 +4543,6 @@ int initialise ()
 int argc = 0;
 char **argv = NULL;
 
-#ifdef _WIN32
-#include <windows.h>
-/* #include "WinGlk.h" */
-char* arglist[1] = { "" };
-
-int winglk_startup_code(const char* cmdline)
-{
-   char name[80];
-   char *nptr = name;
-   char *cptr = GAMEID;
-   
-   while (isalnum (*cptr) && (nptr - name) < 78)
-      *nptr++ = *cptr++;
-   *nptr = '\0';
-   winglk_app_set_name(name);
-   winglk_window_set_title(GAMEID);
-   argc = 1;
-   argv = arglist;
-   return 1;
-}
-/* Entry point for all Glk applications */
-int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow)
-{
-  /* Attempt to initialise Glk */
-  if (InitGlk(0x00000601) == 0)
-    exit(0);
-
-  /* Call the Windows specific initialization routine */
-  if (winglk_startup_code(lpCmdLine) != 0)
-  {
-/* Run the application */
-    glk_main();
-
-/* There is no return from this routine */
-    glk_exit();
-  }
-
-  return 0;
-}
-#endif
 #if defined(unix) || defined(linux) || defined(XGLK)
 #define glkunix_arg_End (0)
 #define glkunix_arg_ValueFollows (1)
@@ -5740,108 +5720,5 @@ void redo ()
    bitmod (cnt > acnt ? 's' : 'c', UNDO_STAT, UNDO_TRIM);
 }
 #endif /* UNDO */
-
-/*===========================================================*/
-
-#if (defined(MSDOS) || defined (_WIN32)) && !defined(DJGPP)
-
-#ifndef GLK
-# include <windows.h>
-#endif
-
-#ifdef SLOW
-#ifdef __STDC__
-void my_usleep (int delay)
-#else
-void my_usleep (delay)
-int delay;
-#endif
-{ SleepEx(delay, 0); return; }
-#endif /* SLOW */
-#endif /* MSDOS || WIN32 */
-
-/*===========================================================*/
-
-#if STYLE >= 11
-#if (!defined(MSDOS) && !defined(_WIN32)) || defined (DJGPP)
-#include <dirent.h>
-#endif
-
-#ifdef __STDC__
-int list_saved (int action, char *last_name)
-#else
-int list_saved (action, last_name)
-int action;
-char *last_name;
-#endif
-{
-   int cnt = 0;
-   char buf[64];
-#if (defined(MSDOS) || defined(_WIN32)) && !defined(DJGPP)
-   WIN32_FIND_DATA wfd;
-   HANDLE hFind; 
-#else
-   DIR *dp;
-   struct dirent *de;
-#endif
-   char *sfx;
-
-#ifdef ADVCONTEXT
-   if (cgi) return (-1);
-#endif /* ADVCONTEXT */
-
-   *(buf + 63) = '\0';
-
-#if (defined(MSDOS) || defined(_WIN32)) && !defined(DJGPP)
-   if ((hFind = FindFirstFile ("*.adv", &wfd)) == INVALID_HANDLE_VALUE)
-#else
-   if ((dp = opendir(".")) == NULL)
-#endif
-      return (0);
-
-   while (1)
-   {
-#if (defined(MSDOS) || defined(_WIN32)) && !defined(DJGPP)
-      if (cnt) 
-      {
-         if (FindNextFile(hFind, &wfd) == 0)
-            break;
-      }
-      strncpy(buf, wfd.cFileName, 63);
-#else
-      if ((de = readdir(dp)) == NULL)
-         break;
-      strncpy (buf, de->d_name, 63);
-#endif
-      if (*buf != '.' &&
-         strcmp (sfx = buf + strlen(buf) - 4, ".adv") == 0)
-      {
-         *sfx = '\0';
-         if (action)
-         {
-            if (cnt) PRINTF (", ")
-            PRINTF (buf)
-         }
-         cnt++;
-      }
-   }
-#if (defined(MSDOS) || defined(_WIN32)) && !defined(DJGPP)
-      FindClose(hFind);
-#else
-      closedir (dp);
-#endif
-
-   if (cnt == 0) return (0);
-   if (action) PRINTF (".\n")
-   if (last_name && cnt == 1)
-   {
-      value [ARG2] = 0;
-      *(buf + 15) = '\0';
-      strcpy (last_name, buf);
-   }
-   return (cnt);
-}
-
-#endif /* STYLE */
 
 /*************************************************************/

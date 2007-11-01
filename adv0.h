@@ -1,7 +1,13 @@
 /* adv0.h: A-code kernel - copyleft Mike Arnautov 1990-2007.
  *
- * 01 May 07   S. Munro       Bug: Added STDC definition of procs[]().
+ * 24 May 07   Stuart Munro    Added check for _MSC_EXTENSIONS.
+ *                             Also defined __STDC__ explicitly as 1.
+ * 01 May 07   Stuart Munro    Bug: Added STDC definition of procs[]().
  */
+
+#if (defined(__cplusplus) || defined(_MSC_EXTENSIONS)) && !defined(__STDC__)
+#  define __STDC__ 1
+#endif
 
 #ifdef FILE
 #  undef FILE
