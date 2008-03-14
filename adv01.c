@@ -12,6 +12,13 @@
 #include <stdio.h>
 #include <string.h>
 
+#ifdef HTTP
+#  undef GLK
+#  undef READLINE
+   int lsock;
+   int wsock;
+#endif
+
 #define ADV01
 #include "adv1.h"
 
@@ -24,7 +31,13 @@ extern void outchar ();
 #define PRINTF(X)    { char *ptr = X; while (*ptr) outchar(*ptr++); }
 
 #ifdef _WIN32
-#include <windows.h>
+#  include <windows.h>
+#  ifdef HTTP
+#     include <winsock.h>
+#     define sclose closesocket
+#  endif
+#else
+#  define sclose close
 #endif
 
 #ifdef GLK

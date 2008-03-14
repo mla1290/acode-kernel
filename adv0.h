@@ -54,7 +54,12 @@ extern int memstore (int);
 extern int test (char *);
 extern void undo (void);
 extern void redo (void);
+extern void show_data (void);
+extern int http_in (void);
+extern int http_out (void);
+extern void http_init (void);
 extern void (*procs[])(void);
+extern void pcall (int);
 #else
 extern void say ();
 extern int query ();
@@ -92,7 +97,12 @@ extern int memstore ();
 extern int test();
 extern void undo();
 extern void redo();
+extern void show_data();
+extern int http_in ();
+extern int http_out ();
+extern void http_init ();
 extern void (*procs[])();
+extern void pcall ();
 #endif
 extern jmp_buf loop_back;
 extern int *value;
