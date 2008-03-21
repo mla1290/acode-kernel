@@ -1,7 +1,9 @@
 /* adv00.c: A-code kernel - copyleft Mike Arnautov 1990-2008.
  */
-#define KERNEL_VERSION "11.96, MLA - 09 Jan 2008"
+#define KERNEL_VERSION "11.97, MLA - 20 Mar 2008"
 /*
+ * 20 Mar 08   MLA        Bug: PARA_END only defined if ADVCONTEXT is.
+ *                        Bug: Fixed "nbsp" bug in non-CGI modes.
  * 09 Jan 08   MLA        Added h/H cgi state.
  * 22 Nov 07   MLA        Bomb if cgi-mode context dump file not found.
  * 10 Nov 07   MLA        Added interactive data dump.
@@ -1414,9 +1416,6 @@ char *tptr;
       {
 #ifdef ADVCONTEXT
          if (cgi && type == BLOCK_START && *tptr == ' ')
-#else
-         if (type == BLOCK_START && *tptr == ' ')
-#endif /* ADVCONTEXT */
          {
             if (log_file) (void)fputc(*tptr, log_file);
             tptr++;
@@ -1424,6 +1423,13 @@ char *tptr;
             if (*tptr == ' ')
                outstr("&nbsp;");
          }
+#else
+         if (type == BLOCK_START && *tptr == ' ')
+         {
+            if (log_file) (void)fputc(*tptr, log_file);
+            putchar(*tptr++);
+         }
+#endif /* ADVCONTEXT */
          else
          {
             PUTCHARA (tptr);
@@ -1515,13 +1521,15 @@ int terminate;
             PRINTF ("\n? ")
       }
    }
-#ifdef ADVCONTEXT
    else                    /* If a fragment, add a blank to it */
    {
+#ifdef ADVCONTEXT
       *lptr++ = (cgi ? '\n' : ' ');
+#else
+      *lptr++ = ' ';
+#endif
       text_len++;
    }
-#endif
    *lptr = '\0';           /* Terminate the string */
 
 /* Strip excess leading line feeds -- all of them if "compressed" output */
@@ -1560,6 +1568,7 @@ int terminate;
       if (text_char == IGNORE_EOL)
       {
          ignore_eol = 1;
+         line_len++;
          continue;
       }
       if (text_char == '\n' && ignore_eol)
@@ -1567,6 +1576,7 @@ int terminate;
          ignore_eol = 0;   /* IGNORE_EOL only valid for one line! */
          *(tptr - 1) = IGNORE_EOL;
          lastchar = '\0';
+         line_len++;
          continue;
       }
          
@@ -1580,6 +1590,7 @@ int terminate;
          while ((text_char = *tptr++) == ' '); 
          lptr = --tptr;
          lastchar = ' ';
+         continue;
       }
 
 /* All block handling is done in the doblock routine, which also manipulates
@@ -2455,8 +2466,10 @@ int fill;
 #else
          aptr = filter_char (aptr);
 #endif /* SLOW */
+#ifdef ADVCONTEXT
          if (*(aptr - 1) == PARA_END)
             return (aptr);
+#endif /* ADVCONTEXT */
       }
 #ifdef ADVCONTEXT
       if (cgi && *aptr == '\0')
