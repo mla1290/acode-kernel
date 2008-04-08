@@ -1,8 +1,11 @@
 /* adv00.c: A-code kernel - copyleft Mike Arnautov 1990-2008.
  */
-#define KERNEL_VERSION "11.97, MLA - 20 Mar 2008"
+#define KERNEL_VERSION "11.98, MLA - 06 Apr 2008"
 /*
- * 20 Mar 08   MLA        Bug: PARA_END only defined if ADVCONTEXT is.
+ * 06 Apr 08   R.Mathews  bug: add MacOS to the list of OS with the '/' separator.
+ * 03 Apr 08   MLA        Bug: outline() needs the terminate arg if using readline.
+ * 20 Mar 08   MLA        BUG: Fixed IGNORE_EOL handling.
+ *                        Bug: PARA_END only defined if ADVCONTEXT is.
  *                        Bug: Fixed "nbsp" bug in non-CGI modes.
  * 09 Jan 08   MLA        Added h/H cgi state.
  * 22 Nov 07   MLA        Bomb if cgi-mode context dump file not found.
@@ -329,7 +332,7 @@
 #  endif
 #endif
 
-#if defined(unix) || defined(__CYGWIN__)
+#if defined(unix) || defined(__CYGWIN__) || defined(__MACH__)
 #  define SEP '/'
 #else
 #  if defined(MSDOS) || defined(_WIN32)
@@ -1283,7 +1286,11 @@ int clear;
    {
       need = Margin;
       while (need--)
+#ifdef READLINE
+         PRINTF1 (" ");    
+#else
          putchar (' ');
+#endif /* READLINE */
       PRINTF1 ("[More?] ");
       fgets (reply, sizeof (reply) - 1, com_file ? com_file : stdin);
       if (log_file)
@@ -1632,7 +1639,11 @@ int terminate;
 
          if (line_len > 0)
          {
+#ifdef READLINE
+            lptr = outline (lptr, line_len, 0, 0, terminate); /* Points at next line */
+#else
             lptr = outline (lptr, line_len, 0, 0); /* Points at next line */
+#endif /* READLINE */
             line_len = 0;
             tptr = lptr;
          }
@@ -1663,7 +1674,11 @@ int terminate;
          {
             while (*tptr == ' ')
                tptr++;
+#ifdef READLINE
+            lptr = outline (lptr, break_point, break_count, 1, terminate);
+#else
             lptr = outline (lptr, break_point, break_count, 1);
+#endif /* READLINE */
             break_point = 0;
             break_count = -1;
             PUTCHAR ('\n');
@@ -1681,12 +1696,20 @@ int terminate;
       {
          if (break_count < 0)
          {
+#ifdef READLINE
+            lptr = outline (lptr, Maxlen, 0, 0, terminate);
+#else
             lptr = outline (lptr, Maxlen, 0, 0);
+#endif /* READLINE */
 /*            if (lptr == NULL) return; */
          }
          else
          {
+#ifdef READLINE
+            lptr = outline (lptr, break_point, break_count, 1, terminate);
+#else
             lptr = outline (lptr, break_point, break_count, 1);
+#endif /* READLINE */
 /*            if (lptr == NULL) return; */
             PUTCHAR ('\n');
             wrapped = 1;
@@ -1700,7 +1723,11 @@ int terminate;
          lastchar = text_char;
    }
    if (line_len > 0)
+#ifdef READLINE
+      (void) outline (lptr, line_len, 0, 0, terminate);
+#else
       (void) outline (lptr, line_len, 0, 0);
+#endif /* READLINE */
 
    lptr = text_buf;
    *lptr++ = '\n';
@@ -2419,13 +2446,26 @@ char *aptr;
 /*===========================================================*/
 
 #ifdef __STDC__
+#ifdef READLINE
+char *outline (char *aptr, int char_count, int break_count, int fill, int terminate)
+#else
 char *outline (char *aptr, int char_count, int break_count, int fill)
+#endif /* READLINE */
+#else
+#ifdef READLINE
+char *outline (aptr, char_count, break_count, fill, terminate)
+char *aptr;
+int break_count;
+int char_count;
+int fill;
+int terminate;
 #else
 char *outline (aptr, char_count, break_count, fill)
 char *aptr;
 int break_count;
 int char_count;
 int fill;
+#endif /* READLINE */
 #endif
 {
    int index;
@@ -2519,7 +2559,7 @@ int fill;
    }
 #ifdef READLINE
    *lbp = '\0';
-   if (*aptr)
+   if (*aptr || terminate)
       printf (lbuf);
    lbp = lbuf;      
 #endif
@@ -3566,6 +3606,7 @@ FILE *infile;
    int minvalg = 0;
    int majvalt = 0;
    int minvalt = 0;
+
    char *gptr = GAMEID;
    char tchr = fgetc (infile);
    
@@ -3583,13 +3624,13 @@ FILE *infile;
    while (isdigit (*gptr) || *gptr == '.')
    {
       if (*gptr == '.') { majvalg = minvalg; minvalg = 0; }
-      else              minvalg = 10 * minvalg + *gptr - '0';
+      else minvalg = 10 * minvalg + *gptr - '0';
       gptr++;
    }
    while (isdigit (tchr) || tchr == '.')
    {
       if (tchr == '.') { majvalt = minvalt; minvalt = 0; }
-      else              minvalt = 10 * minvalt + tchr - '0';
+      else minvalt = 10 * minvalt + tchr - '0';
       tchr = fgetc (infile);
    }
    if (majvalg != majvalt) return (1);
@@ -3875,7 +3916,6 @@ got_name:
          if ((game_file = fopen (save_name, WMODE)) == NULL)
          {
 #ifdef ADVCONTEXT
- fprintf (stderr, "+++ Line %d\n", __LINE__);
             if (key != 998) *var = 1;
 #endif /* ADVCONTEXT */
             return (1);
@@ -5044,9 +5084,7 @@ char **argv;
          if (text_len > 0)
             outbuf (1);
          putchar ('\n');
-#ifndef READLINE
          putchar ('\n');
-#endif /* not READLINE */
       }
       close_files ();
 #ifdef GLK

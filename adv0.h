@@ -35,7 +35,11 @@ extern void bitmod (char a1, int a2, int a3);
 extern int lbitest (int a1, int a2, int *a3, short *a4);
 extern int bitest (int a1, int a2);
 extern void outchar (int text_char);
+#ifdef READLINE
+extern char *outline (char *addr, int char_count, int break_count, int fill, int terminate);
+#else
 extern char *outline (char *addr, int char_count, int break_count, int fill);
+#endif /* READLINE */
 extern void finita (void);
 extern int irand (int less_then);
 extern int have (int l1, int l2, int l3);
