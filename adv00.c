@@ -1,7 +1,10 @@
 /* adv00.c: A-code kernel - copyleft Mike Arnautov 1990-2008.
  */
-#define KERNEL_VERSION "11.98, MLA - 06 Apr 2008"
+#define KERNEL_VERSION "11.99, MLA - 09 Apr 2008"
 /*
+ * 12 Apr 08   MLA        Pass game name in AJAXTEST call to play.
+ * 10 Apr 08   MLA        AJAXTEST added.
+ * 09 Apr 08   MLA        BUG: Fixed detail display.
  * 06 Apr 08   R.Mathews  bug: add MacOS to the list of OS with the '/' separator.
  * 03 Apr 08   MLA        Bug: outline() needs the terminate arg if using readline.
  * 20 Mar 08   MLA        BUG: Fixed IGNORE_EOL handling.
@@ -1902,8 +1905,13 @@ int qualifier;
    }
    else if (what >= FOBJECT)
    {
-#if defined(DETAIL)
-      if (detail_flag || bitest (STATUS, DETAIL))
+#if defined(DETAIL) && STYLE == 10
+      if (bitest (STATUS, DETAIL))
+         ta = detail_desc [what];
+      else
+#endif
+#if STYLE >= 11
+      if (detail_flag)
          ta = detail_desc [what];
       else
 #endif
@@ -4782,6 +4790,11 @@ char **argv;
    char *cptr;
    char *prog = *argv;
    char *opt;
+#ifdef AJAXTEST
+   char playpath [256];
+   strncpy (playpath, *argv, 255);
+   *(playpath + 255) = 0;
+#endif /* AJAXTEST */
    
    if (Linlen == 0) Linlen = 32767;
    if (Screen == 0) Screen = 32767;
@@ -4963,6 +4976,26 @@ char **argv;
          }         
       }
 
+#ifdef AJAXTEST
+   if (! cgi) 
+   {
+      char gname [64];
+      char *cptr = strrchr (playpath, '/');
+      if (cptr == NULL)
+      {
+         strcpy (gname, playpath);
+         strcpy (playpath, "./");
+         cptr = playpath + 2;
+      }
+      else
+      {
+         cptr++;
+         strcpy (gname, cptr);
+      }
+      strcpy (cptr, "lib/play");
+      execl (playpath, gname, gname, NULL);
+   }
+#endif /* AJAXTEST */
 #ifdef READLINE
    lbuf = (char *)malloc(2 * Maxlen + 1);
    lbp = lbuf;
