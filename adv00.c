@@ -1,15 +1,16 @@
 /* adv00.c: A-code kernel - copyleft Mike Arnautov 1990-2008.
  */
-#define KERNEL_VERSION "11.99, MLA - 09 Apr 2008"
+#define KERNEL_VERSION "12.5, MLA - 030 Apr 2008"
 /*
- * 12 Apr 08   MLA        Pass game name in AJAXTEST call to play.
- * 10 Apr 08   MLA        AJAXTEST added.
+ * 30 Apr 08   MLA        Added PROMPT.
  * 09 Apr 08   MLA        BUG: Fixed detail display.
  * 06 Apr 08   R.Mathews  bug: add MacOS to the list of OS with the '/' separator.
  * 03 Apr 08   MLA        Bug: outline() needs the terminate arg if using readline.
+ * 22 Mar 08   MLA        BADWORD etc now go down from -2.
  * 20 Mar 08   MLA        BUG: Fixed IGNORE_EOL handling.
  *                        Bug: PARA_END only defined if ADVCONTEXT is.
  *                        Bug: Fixed "nbsp" bug in non-CGI modes.
+ * 11 Mar 08   MLA        Version 12 (to work with the two-pass acdc).
  * 09 Jan 08   MLA        Added h/H cgi state.
  * 22 Nov 07   MLA        Bomb if cgi-mode context dump file not found.
  * 10 Nov 07   MLA        Added interactive data dump.
@@ -475,20 +476,20 @@ char exec [128];
 char virgin;
 #define VAL_SIZE (LTEXT * sizeof (int))
 #define OFFSET_LOCS VAL_SIZE
-#define LOCS_SIZE ((LOBJECT + 1) * sizeof (int))
+#define LOCS_SIZE ((LOBJ + 1) * sizeof (int))
 #define OFFSET_OBJBIT (OFFSET_LOCS + LOCS_SIZE)
-#define OBJBIT_SIZE (OBJSIZE * (LOBJECT - FOBJECT + 1) * sizeof (short))
-#define OFFSET_PLACEBIT (OFFSET_OBJBIT + OBJBIT_SIZE)
-#define PLACEBIT_SIZE (PLACESIZE * (LPLACE - FPLACE + 1) * sizeof (short))
-#define OFFSET_VARBIT (OFFSET_PLACEBIT + PLACEBIT_SIZE)
-#define VARBIT_SIZE (VARSIZE * (LVARIABLE - FVERB + 1) * sizeof (short))
+#define OBJBIT_SIZE (OBJSIZE * (LOBJ - FOBJ + 1) * sizeof (short))
+#define OFFSET_LOCBIT (OFFSET_OBJBIT + OBJBIT_SIZE)
+#define LOCBIT_SIZE (LOCSIZE * (LLOC - FLOC + 1) * sizeof (short))
+#define OFFSET_VARBIT (OFFSET_LOCBIT + LOCBIT_SIZE)
+#define VARBIT_SIZE (VARSIZE * (LVAR - FVERB + 1) * sizeof (short))
 #define VRBBIT_SIZE (VARSIZE * (LVERB - FVERB + 1) * sizeof (short))
 #define IMAGE_SIZE (OFFSET_VARBIT + VARBIT_SIZE)
 char IMAGE [IMAGE_SIZE];
 int *value = (int *)IMAGE;
 int *location = (int *)(IMAGE + OFFSET_LOCS);
 short *objbits = (short *)(IMAGE + OFFSET_OBJBIT);
-short *placebits = (short *)(IMAGE + OFFSET_PLACEBIT);
+short *placebits = (short *)(IMAGE + OFFSET_LOCBIT);
 short *varbits = (short *)(IMAGE + OFFSET_VARBIT);
 #ifdef UNDO
    char image [sizeof (IMAGE)];
@@ -1290,7 +1291,7 @@ int clear;
       need = Margin;
       while (need--)
 #ifdef READLINE
-         PRINTF1 (" ");    
+         PRINTF1 (" ");
 #else
          putchar (' ');
 #endif /* READLINE */
@@ -1522,12 +1523,25 @@ int terminate;
       if (! terminate)     /* If not exiting, append a prompt to the buffer */
 #endif
       {      
-#if STYLE > 1
-         if (!compress && frag == 0)
+#  if STYLE > 1
+         if (!compress && frag == 0 && lptr > text_buf)
          {
             PRINTF ("\n ");
          }
-#endif /* STYLE */
+#  endif /* STYLE > 1 */
+#if STYLE > 11 && defined (PROMPT)
+         if (value [PROMPT])
+         {
+            PRINTF ("\n");
+            say (0, value [PROMPT], 0);
+            lptr--;
+            while (*lptr == '\n' || *lptr == ' ')
+               lptr--;
+            if (*lptr++ != NBSP)
+               PRINTF (" ")
+	 }
+         else
+#endif
             PRINTF ("\n? ")
       }
    }
@@ -1561,7 +1575,7 @@ int terminate;
 /* Unless responding to an input error, consider adding the word pointed at
  * to the "scenery" word list.
  */
-   if (value [ARG1] < BADWORD && value [ARG2] < BADWORD)
+   if (value [ARG1] >= 0 && value [ARG2] >= 0)
       word_update ();
 #endif /* STYLE */
 
@@ -1577,8 +1591,8 @@ int terminate;
  */ 
       if (text_char == IGNORE_EOL)
       {
-         ignore_eol = 1;
          line_len++;
+         ignore_eol = 1;
          continue;
       }
       if (text_char == '\n' && ignore_eol)
@@ -1617,9 +1631,10 @@ int terminate;
       }
       else
 #endif /* BLOCK_START */
-         line_len++;          /* Just a "normal" char */
+         if (tptr != lptr)
+            line_len++;          /* Just a "normal" char */
 
-/* Line feeds need special treatment. ACDC alrteady ignored all "icidental"
+/* Line feeds need special treatment. ACDC alrteady stripped all "icidental"
  * ends of line, so what is left, must be honoured.
  */      
       if (text_char == '\n')
@@ -1698,14 +1713,11 @@ int terminate;
       if (line_len >= Maxlen)
       {
          if (break_count < 0)
-         {
 #ifdef READLINE
             lptr = outline (lptr, Maxlen, 0, 0, terminate);
 #else
             lptr = outline (lptr, Maxlen, 0, 0);
 #endif /* READLINE */
-/*            if (lptr == NULL) return; */
-         }
          else
          {
 #ifdef READLINE
@@ -1713,7 +1725,6 @@ int terminate;
 #else
             lptr = outline (lptr, break_point, break_count, 1);
 #endif /* READLINE */
-/*            if (lptr == NULL) return; */
             PUTCHAR ('\n');
             wrapped = 1;
          }
@@ -1776,25 +1787,15 @@ int qualifier;
    refno = get_char (addr++) << 8;
    refno |= (get_char (addr) & 255);
    if (type == 0)
-   {
-      refno += FOBJECT;
       key = VOC_FLAG;
-   }
    else if (type == 1)
-   {
-      refno += FPLACE;
       key = VOC_FLAG;
-   }
-   else if (type == 2)
-      refno += FVERB;
    else if (type == 3)
    {
-      refno += FVARIABLE;
       key = VAR_FLAG | VOC_FLAG;
       qualifier = 0;
    }
-   else
-      refno += FTEXT;
+
    if (type < 2)
       qualifier = 0;
    say (key, refno, qualifier);
@@ -1869,7 +1870,24 @@ int qualifier;
 #endif /* OBSOLETE */
 
    if (var_what_flag)
-      what = value [what];
+   {
+      int tmp = value [what];
+#if STYLE >= 11
+      if ((what != ARG1 && what != ARG2 && what != ARG3) ||
+         tmp != BADWORD && tmp != AMBIGWORD && tmp != AMBIGTYPO &&
+         tmp != SCENEWORD && tmp != BADSYNTAX)
+#else
+#  if STYLE == 1
+      if ((what != ARG1 && what != ARG2 && what != ARG3) || tmp != BADWORD)
+#  else
+      if ((what != ARG1 && what != ARG2 && what != ARG3) ||
+         tmp != BADWORD && tmp != AMBIGWORD)
+#  endif
+#endif /* STYLE */
+            what = tmp;
+      else
+            voc_flag = 1;
+   }
 
    given_qualifier = qualifier;
    if (var_qual_flag &&
@@ -1877,7 +1895,7 @@ int qualifier;
          value_flag))
             qualifier = value [qualifier];
 
-   if (what > LPLACE || voc_flag)
+   if (what > LLOC || voc_flag)
    {
       if (voc_flag && (what == ARG1 || what == ARG2))
       {
@@ -1893,7 +1911,7 @@ int qualifier;
       }
       ta = textadr [what];
    }
-   else if (what >= FPLACE)
+   else if (what >= FLOC)
    {
 #if defined(TERSE) && defined(FULL) && defined(BEENHERE)
       if (bitest (STATUS, TERSE) || 
@@ -1903,7 +1921,7 @@ int qualifier;
 #endif
          ta = long_desc [what];
    }
-   else if (what >= FOBJECT)
+   else if (what >= FOBJ)
    {
 #if defined(DETAIL) && STYLE == 10
       if (bitest (STATUS, DETAIL))
@@ -1962,12 +1980,12 @@ int qualifier;
          textqual = value [what];
       else if (text_info [twat] == TIED_TEXT)
          textqual = value [value [what]];
-      else if (qualifier == ARG2 && value [ARG2] < BADWORD)
+      else if (qualifier == ARG2 && value [ARG2] >= 0)
          textqual = value [value [qualifier]];
    }
 
    if (!qual_flag)
-      qualifier = (what <= LPLACE) ? value [what] : what;
+      qualifier = (what <= LLOC) ? value [what] : what;
    
    while (tc != '\0')
    {
@@ -2074,7 +2092,7 @@ int qualifier;
 #endif /* STYLE */
          else
          {
-            index = (var_qual_flag && given_qualifier <= LPLACE) ?
+            index = (var_qual_flag && given_qualifier <= LLOC) ?
                given_qualifier : qualifier;
             auxa = ta;
             locate_demands++;
@@ -2236,7 +2254,7 @@ void save_changes ();
    unsigned int cnt;
    int some = 0;
 
-   if (value [ARG1] >= BADWORD || value [ARG2] >= BADWORD ||
+   if (value [ARG1] <= BADWORD || value [ARG2] <= BADWORD ||
 #ifdef ADVCONTEXT
        value [ADVCONTEXT] > 1 ||  cgi == 'y' ||
 #endif
@@ -2515,9 +2533,9 @@ int fill;
          aptr = filter_char (aptr);
 #endif /* SLOW */
 #ifdef ADVCONTEXT
-         if (*(aptr - 1) == PARA_END)
+         if (cgi && *(aptr - 1) == PARA_END)
             return (aptr);
-#endif /* ADVCONTEXT */
+#endif
       }
 #ifdef ADVCONTEXT
       if (cgi && *aptr == '\0')
@@ -2639,12 +2657,12 @@ int type;
    if (key == 0 && value [STATUS] != 1) return;
    fits = -1;
 #ifdef ALL
-   first = (key == 2) ? value_all + 1 : FOBJECT;
-   if (first > LOBJECT)
+   first = (key == 2) ? value_all + 1 : FOBJ;
+   if (first > LOBJ)
       goto failed;
-   for (index = first; index <= LOBJECT; index++)
+   for (index = first; index <= LOBJ; index++)
    {
-#if STYLE >= 11
+#if STYLE >= 11 && defined (EXCEPT)
       if (except_count > 0)
       {
          int i, j;
@@ -2662,7 +2680,7 @@ int type;
       }
 #endif /* STYLE == 11 */
 #else /* not ALL */
-   for (index = FOBJECT; index <= LOBJECT; index++)
+   for (index = FOBJ; index <= LOBJ; index++)
    {
 #endif /* ALL */
 #ifdef SCHIZOID
@@ -2884,7 +2902,7 @@ int which_arg;
          if (old_refno != BADWORD && *refno != old_refno)
 #if STYLE >= 11
          {
-#define REF(X) (which_arg == 1 ? X > LOBJECT : (X <= LOBJECT && \
+#define REF(X) (which_arg == 1 ? X > LOBJ : (X <= LOBJ && \
                    (location [X] == INHAND || location [X] == value [HERE])))
             int oref = REF (old_refno);
             int nref = REF (*refno);
@@ -3046,7 +3064,7 @@ done:
    else
       wp = arg3_word;
    
-   if (*refno >= BADWORD)
+   if (*refno <= BADWORD)
    {
       (void) strncpy (wp, tp [tindex], WORDSIZE);
       if (which_arg <= 2 && strlen (tp [tindex]) > 16)
@@ -3064,7 +3082,7 @@ done:
       }
 #endif /* DWARVEN */
    }
-   if (*refno >= BADWORD && amatch != -1)
+   if (*refno <= BADWORD && amatch != -1)
       tp [tindex + 1] = NULL; /* Discard rest of command */
 
 #if defined(FDIR) && defined(LDIR) 
@@ -3184,7 +3202,7 @@ int textref;
       amatch = -1;
       
 #if STYLE >= 11
-#ifdef ALL
+#if defined (ALL) && defined (EXCEPT)
    if (value_all == 0)
       except_count = 0;
 #endif
@@ -3337,7 +3355,7 @@ get_arg1:
 
 #endif /* AGIAN */
 #ifdef PLSCLARIFY
-   if ((bitest (STATUS, PLSCLARIFY) && refno <= LPLACE) || continuation)
+   if ((bitest (STATUS, PLSCLARIFY) && refno <= LLOC) || continuation)
    {
       value [ARG1] = arg1;
       value [ARG2] = refno;
@@ -3401,8 +3419,8 @@ got_command:
 #endif /* AGAIN */
    if (value [STATUS] == 1 && orphan)
    {
-      if ((orphan > LOBJECT && value [ARG1] < LOBJECT) ||
-          (orphan < LOBJECT && value [ARG1] > LOBJECT))
+      if ((orphan > LOBJ && value [ARG1] < LOBJ) ||
+          (orphan < LOBJ && value [ARG1] > LOBJ))
       {
          value [STATUS] = 2;
          value [ARG2] = orphan;
@@ -3454,15 +3472,15 @@ got_command:
          if (refno == EXCEPT)
          {
             tindex++;
-            while (refno < BADWORD && 
+            while (refno >= 0 && 
                (separator [tindex] == ' ' || separator [tindex] == ','))
             {
                if (strcmp (tp [tindex], AND) != 0)
                {
                   find_word (&type, &refno, &tadr, 3, 1);
-                  if (refno >= BADWORD)
+                  if (refno <= BADWORD)
                      break;
-                  else if (refno > LOBJECT)
+                  else if (refno > LOBJ)
                   {
                      refno = BADSYNTAX;
                      break;
@@ -3476,7 +3494,7 @@ got_command:
                tindex++;
             }
             value [ARG3] = -1;
-            if (refno >= BADWORD)
+            if (refno <= BADWORD)
                return;
          }
       }
@@ -3614,7 +3632,6 @@ FILE *infile;
    int minvalg = 0;
    int majvalt = 0;
    int minvalt = 0;
-
    char *gptr = GAMEID;
    char tchr = fgetc (infile);
    
@@ -3632,13 +3649,13 @@ FILE *infile;
    while (isdigit (*gptr) || *gptr == '.')
    {
       if (*gptr == '.') { majvalg = minvalg; minvalg = 0; }
-      else minvalg = 10 * minvalg + *gptr - '0';
+      else              minvalg = 10 * minvalg + *gptr - '0';
       gptr++;
    }
    while (isdigit (tchr) || tchr == '.')
    {
       if (tchr == '.') { majvalt = minvalt; minvalt = 0; }
-      else minvalt = 10 * minvalt + tchr - '0';
+      else              minvalt = 10 * minvalt + tchr - '0';
       tchr = fgetc (infile);
    }
    if (majvalg != majvalt) return (1);
@@ -3930,15 +3947,15 @@ got_name:
          }
          (void) time ((time_t *) &tval[0]);
          (void) fprintf (game_file, "%s\n", GAMEID);
-         val = FOBJECT;
+         val = FOBJ;
          (void) fwrite (&val, sizeof (int), 1, game_file);
-         val = LOBJECT;
+         val = LOBJ;
          (void) fwrite (&val, sizeof (int), 1, game_file);
-         val = LPLACE;
+         val = LLOC;
          (void) fwrite (&val, sizeof (int), 1, game_file);
          val = LVERB;
          (void) fwrite (&val, sizeof (int), 1, game_file);
-         val = LVARIABLE;
+         val = LVAR;
          (void) fwrite (&val, sizeof (int), 1, game_file);
          val = LTEXT;
          (void) fwrite (&val, sizeof (int), 1, game_file);
@@ -3948,7 +3965,7 @@ got_name:
          CHKSUM(IMAGE, VAL_SIZE)
          CHKSUM(IMAGE + OFFSET_LOCS, LOCS_SIZE)
          CHKSUM(IMAGE + OFFSET_OBJBIT, OBJBIT_SIZE)
-         CHKSUM(IMAGE + OFFSET_PLACEBIT, PLACEBIT_SIZE)
+         CHKSUM(IMAGE + OFFSET_LOCBIT, LOCBIT_SIZE)
          CHKSUM(IMAGE + OFFSET_VARBIT, VARBIT_SIZE)
 #ifdef ADVCONTEXT
          if (cgi > 'h' && key == 998)
@@ -4014,19 +4031,19 @@ restore_it:
          val1 = 0;
          (void) fread (&val, sizeof (int), 1, game_file);
 #ifdef DEBUG
-         printf ("FOBJECT: image %3d, expected %3d\n", val, FOBJECT);
+         printf ("FOBJ: image %3d, expected %3d\n", val, FOBJ);
 #endif /* DEBUG */
-         if (val != FOBJECT) val1++;
+         if (val != FOBJ) val1++;
          (void) fread (&lobj, sizeof (int), 1, game_file);
 #ifdef DEBUG
-         printf ("LOBJECT: image %3d, expected %3d\n", lobj, LOBJECT);
+         printf ("LOBJ: image %3d, expected %3d\n", lobj, LOBJ);
 #endif /* DEBUG */
-         if (lobj > LOBJECT) val1++;
+         if (lobj > LOBJ) val1++;
          (void) fread (&lplace, sizeof (int), 1, game_file);
 #ifdef DEBUG
-         printf ("LPLACE: image %3d, expected %3d\n", lplace, LPLACE);
+         printf ("LLOC: image %3d, expected %3d\n", lplace, LLOC);
 #endif /* DEBUG */
-         if (lplace > LPLACE) val1++;
+         if (lplace > LLOC) val1++;
          (void) fread (&lverb, sizeof (int), 1, game_file);
 #ifdef DEBUG
          printf ("LVERB: image %3d, expected %3d\n", lverb, LVERB);
@@ -4034,9 +4051,9 @@ restore_it:
          if (lverb > LVERB) val1++;
          (void) fread (&lvar, sizeof (int), 1, game_file);
 #ifdef DEBUG
-         printf ("LVARIABLE: image %3d, expected %3d\n", lvar, LVARIABLE);
+         printf ("LVAR: image %3d, expected %3d\n", lvar, LVAR);
 #endif /* DEBUG */
-         if (lvar > LVARIABLE) val1++;
+         if (lvar > LVAR) val1++;
          (void) fread (&ltext, sizeof (int), 1, game_file);
 #ifdef DEBUG
          printf ("LTEXT: image %3d, expected %3d\n", ltext, LTEXT);
@@ -4084,9 +4101,9 @@ restore_it:
             int locso = ltext * sizeof (int);
             int locss = (lobj + 1) * sizeof (int);
             int objbo = locso + locss;
-            int objbs = OBJSIZE * (lobj - FOBJECT + 1) * sizeof (short);
+            int objbs = OBJSIZE * (lobj - FOBJ + 1) * sizeof (short);
             int plabo = objbo + objbs;
-            int plabs = PLACESIZE * (lplace - lobj) * sizeof (short);
+            int plabs = LOCSIZE * (lplace - lobj) * sizeof (short);
             int varbo = plabo + plabs;
             int varbs = VARSIZE * (lvar - lplace) * sizeof (short);
             int imgsiz = varbo + varbs;
@@ -4138,9 +4155,9 @@ restore_it:
             int locso = ltext * sizeof (int);
             int locss = (lobj + 1) * sizeof (int);
             int objbo = locso + locss;
-            int objbs = OBJSIZE * (lobj - FOBJECT + 1) * sizeof (short);
+            int objbs = OBJSIZE * (lobj - FOBJ + 1) * sizeof (short);
             int plabo = objbo + objbs;
-            int plabs = PLACESIZE * (lplace - lobj) * sizeof (short);
+            int plabs = LOCSIZE * (lplace - lobj) * sizeof (short);
             int varbo = plabo + plabs;
             int varbs = VARSIZE * (lvar - lplace) * sizeof (short);
             int vrbbs = VARSIZE * (lverb - lplace) * sizeof (short);
@@ -4171,11 +4188,11 @@ restore_it:
                game_time = 1;
             memset (IMAGE, '\0', IMAGE_SIZE);
             memcpy (value, scratch, (lobj + 1) * sizeof (int));
-            memcpy (value + FPLACE, scratch + (lobj + 1) * sizeof (int), 
+            memcpy (value + FLOC, scratch + (lobj + 1) * sizeof (int), 
                (lplace - lobj) * sizeof (int));
             memcpy (value + FVERB, scratch + (lplace + 1) * sizeof (int), 
                (lverb - lplace) * sizeof (int));
-            memcpy (value + FVARIABLE, scratch + (lverb + 1) * sizeof (int),
+            memcpy (value + FVAR, scratch + (lverb + 1) * sizeof (int),
                (lvar - lverb - 1) * sizeof (int));
             memcpy (value + FTEXT, scratch + lvar * sizeof (int),
                (ltext - lvar) * sizeof (int));
@@ -4669,11 +4686,13 @@ int initialise ()
    }
    tp [0] = NULL;
 
-   for (index = FOBJECT; index <= LOBJECT; index++)
-      bitmod ('s', index, OBJECT);
+#if STYLE < 12
+   for (index = FOBJ; index <= LOBJ; index++)
+      bitmod ('s', index, OBJ);
 
-   for (index = FPLACE; index <= LPLACE; index++)
-      bitmod ('s', index, PLACE);
+   for (index = FLOC; index <= LLOC; index++)
+      bitmod ('s', index, LOC);
+#endif
 
 #if STYLE == 1 && defined(BRIEF)
    bitmod ('s', STATUS, BRIEF);
@@ -4790,11 +4809,6 @@ char **argv;
    char *cptr;
    char *prog = *argv;
    char *opt;
-#ifdef AJAXTEST
-   char playpath [256];
-   strncpy (playpath, *argv, 255);
-   *(playpath + 255) = 0;
-#endif /* AJAXTEST */
    
    if (Linlen == 0) Linlen = 32767;
    if (Screen == 0) Screen = 32767;
@@ -4866,7 +4880,7 @@ char **argv;
          {
             printf ("\nUsage: %s [options]\n\nOptions:\n", prog);
 #ifndef GLK
-            printf ("    -w                  invert default wrap/justify setting\n");
+            printf ("    -j                  invert default wrap/justify setting\n");
             printf ("    -b                  invert default setting for blank lines around prompt\n");
             printf ("    -s <W>x<H>[-<M>]    set screen size and margin\n");
 #ifndef READLINE
@@ -4976,26 +4990,6 @@ char **argv;
          }         
       }
 
-#ifdef AJAXTEST
-   if (! cgi) 
-   {
-      char gname [64];
-      char *cptr = strrchr (playpath, '/');
-      if (cptr == NULL)
-      {
-         strcpy (gname, playpath);
-         strcpy (playpath, "./");
-         cptr = playpath + 2;
-      }
-      else
-      {
-         cptr++;
-         strcpy (gname, cptr);
-      }
-      strcpy (cptr, "lib/play");
-      execl (playpath, gname, gname, NULL);
-   }
-#endif /* AJAXTEST */
 #ifdef READLINE
    lbuf = (char *)malloc(2 * Maxlen + 1);
    lbp = lbuf;
@@ -5039,7 +5033,7 @@ char **argv;
       stylehint_Justification, stylehint_just_LeftFlush);
    glk_set_style (style_Normal);
 #endif
-   value [THERE] = value [HERE] = FPLACE;
+   value [THERE] = value [HERE] = FLOC;
 
 #ifdef ADVCONTEXT
    if (cgi == 'x' && dump_name && *dump_name)
@@ -5054,7 +5048,7 @@ char **argv;
    {
       if (dump_name && *dump_name)
       {
-         p1();
+         INIT_PROC ();
          value [STATUS] = -1;
          value [ARG3] = -1;
          tindex = 1;
@@ -5065,13 +5059,13 @@ char **argv;
       else     
       {
          if (setjmp (loop_back) == 0)
-            p1 ();
+            INIT_PROC ();
       }
    }
 #else
    if (dump_name && *dump_name)
    {
-      p1 ();
+      INIT_PROC ();
       value [STATUS] = -1;
       value [ARG3] = -1;
       strncpy (arg2_word, dump_name, WORDSIZE);
@@ -5082,7 +5076,7 @@ char **argv;
       tindex = 0;
       tp [0] = NULL;
       if (setjmp (loop_back) == 0)
-         p1 ();
+         INIT_PROC ();
    }
 #endif /* ADVCONTEXT */
 
@@ -5132,7 +5126,7 @@ char **argv;
       (void) irand (1);
       mainseed = rseed;
       rseed = mainseed ^ 255;
-      p2 ();
+      REPEAT_PROC ();
    }
 }
 
@@ -5147,7 +5141,7 @@ int l2;
 int l3;
 #endif
 {
-   if (l1 > LOBJECT) return (0);
+   if (l1 > LOBJ) return (0);
    if (location [l1] != INHAND) return (0);
    if (l2 < 0) return (1);
    if (l2 == 0)
@@ -5171,7 +5165,7 @@ int l3;
 int l4;
 #endif
 {
-   if (l1 > LOBJECT) return (0);
+   if (l1 > LOBJ) return (0);
    if (l2 != -1)
    {
       if (l2 == 0)
@@ -5326,7 +5320,7 @@ int l1,l2;
    if (location [l1] == INHAND || l2 == INHAND)
       bitmod ('s', STATUS, JUGGLED);
 #endif
-   location [l1] =  (l2 <= LPLACE || l2 == INHAND) ? l2 : value [l2];
+   location [l1] =  (l2 <= LLOC || l2 == INHAND) ? l2 : value [l2];
    return;
 }
 
@@ -5343,20 +5337,20 @@ short *lb;
 {
    int val, bts, cur = 0;
   
-   if      (t2 == 'e') { val = value [v2]; bts = 0; } /* OBJECT, PLACE, TEXT */
+   if      (t2 == 'e') { val = value [v2]; bts = 0; } /* OBJ, LOC, TEXT */
    else if (t2 == 'c') { val = v2; bts = 0; }                    /* CONSTANT */
-   else if (t2 == 'v') { val = value [v2];                       /* VARIABLE */
+   else if (t2 == 'v') { val = value [v2];                       /* VAR */
                        if (v2 == ARG1 || v2 == ARG2) bts = -1;
                        else bts = varbits [VARSIZE * (v2 - FVERB)]; }
    else  /* t2 == 'l'*/ { val = lv [v2];                            /* LOCAL */
                        bts = lb [VARSIZE * v2]; }
-   if      (t1 == 'V') { value [v1] = val;                       /* VARIABLE */
+   if      (t1 == 'V') { value [v1] = val;                       /* VAR */
                        cur = varbits [VARSIZE * (v1 - FVERB)]; }
    else if (t1 == 'L') { lv [v1] = val;                             /* LOCAL */
                        cur = lb [VARSIZE * v1]; }
-   else  /* t1 == 'E'*/ value [v1] = val;             /* OBJECT, PLACE, TEXT */
+   else  /* t1 == 'E'*/ value [v1] = val;             /* OBJ, LOC, TEXT */
    
-   if      (t1 == 'V') {                                         /* VARIABLE */
+   if      (t1 == 'V') {                                         /* VAR */
       if      (bts == -1 && cur != -1) varbits [VARSIZE * (v1 - FVERB)] = -1;
       else if (bts != -1 && cur == -1) varbits [VARSIZE * (v1 - FVERB)] = 0; }
    else if (t1 == 'L') {                                            /* LOCAL */
@@ -5406,7 +5400,7 @@ void deposit (l1, l2)
 int l1,l2;
 #endif
 {
-    value [value [l1]] = (l2 > LVARIABLE || l2 < FVARIABLE) ? l2 :
+    value [value [l1]] = (l2 > LVAR || l2 < FVAR) ? l2 :
        value [l2];
     return;
 }
@@ -5420,7 +5414,7 @@ void locate (l1, l2)
 int l1,l2;
 #endif
 {
-   value [l1] = location [(l2 < FVARIABLE || l2 > LVARIABLE) ? l2 :
+   value [l1] = location [(l2 < FVAR || l2 > LVAR) ? l2 :
       value [l2]];
    *bitword (l1) = -1;
    return;
@@ -5492,11 +5486,11 @@ int a1;
    short *adr;
    
    adr = NULL;
-   if (a1 <= LOBJECT)
-       adr = &objbits [OBJSIZE * (a1 - FOBJECT)];
-   else if (a1 <= LPLACE)
-      adr = &placebits [PLACESIZE * (a1 - FPLACE)];
-   else if (a1 <= LVARIABLE)
+   if (a1 <= LOBJ)
+       adr = &objbits [OBJSIZE * (a1 - FOBJ)];
+   else if (a1 <= LLOC)
+      adr = &placebits [LOCSIZE * (a1 - FLOC)];
+   else if (a1 <= LVAR)
       adr = &varbits [VARSIZE * (a1 - FVERB)];
    return (adr);
 }
@@ -5514,12 +5508,24 @@ int a3;
 {
    short *bitadr;
    
-   if (a2 > LVARIABLE) 
+   if (a2 > LVAR) 
    {
       printf (
          "*** Run-time glitch! Setting flag on a flagless entity %d! ***\n", a2);
       return;
    }
+#if STYLE >= 12
+   if (a2 <= LLOC)
+   {
+      if (a3 < 3)
+      {
+         printf (
+            "*** Run-time glitch! Attempting to modify major type of entity %d!\n", a2);
+         return;
+      }
+      a3 -= 3;
+   }
+#endif
    bitadr = bitword (a2);
    while (a3 > 15)
    {
@@ -5557,11 +5563,28 @@ short *a5;
    short *bitadr;
 
    if (a2 < 0 || a2 >= a0)
+   {
       printf (
          "*** Run-time glitch! Local entity %d >= locals %d! ***\n", a2, a0);
-
+      return;
+   }
    if (*(a5 + VARSIZE * a2) == -1)
-      bitadr = bitword (*(a4 + a2));
+   {
+      a2 = *(a4 + a2);
+#if STYLE >= 12
+      if (a2 <= LLOC)
+      {
+         if (a3 < 3)
+         {
+            printf (
+               "*** Run-time glitch! Attempting to modify major type of entity %d!\n", a2);
+            return;
+         }
+         a3 -= 3;
+      }
+#endif
+      bitadr = bitword (a2);
+   }
    else
       bitadr = a5 + VARSIZE * a2;
 
@@ -5589,10 +5612,22 @@ int a2;
 {
    short *bitadr;
    
-   if (a1 > LVARIABLE)
+   if (a1 > LVAR)
       return (0);
-   if (a1 < FVARIABLE && a1 > LVERB)
-      return (a2 == VERB);
+#if STYLE >= 10
+   if (a1 <= LVERB)
+   {
+      if (a2 == 0)
+         return (a1 <= LOBJ && a1 >= FOBJ);
+      else if (a2 == 1)
+         return (a1 <= LLOC && a1 >= FLOC);
+      else if (a2 == 2)
+         return (a1 >= FVERB);
+#if STYLE >= 12
+      a2 -= 3;
+#endif
+   }
+#endif
    bitadr = bitword (a1);
    if (bitadr == NULL)
       return (0);
@@ -5618,7 +5653,22 @@ short *a4;
 {
    short *bitadr;
    if (*(a4 + VARSIZE * a1) == -1)
-      bitadr = bitword (*(a3 + a1));
+   {
+      a1 = *(a3 + a1);
+      if (a1 <= LVERB)
+      {
+         if (a2 == 0)
+            return (a1 <= LOBJ && a1 >= FOBJ);
+         else if (a2 == 1)
+            return (a1 <= LLOC && a1 >= FLOC);
+         else if (a2 == 2)
+            return (a1 >= FVERB);
+   #if STYLE >= 12
+         a2 -= 3;
+   #endif
+      }
+      bitadr = bitword (a1);
+   }
    else
       bitadr = a4 + VARSIZE * a1;
    if (bitadr == NULL)
@@ -5829,7 +5879,7 @@ int mode;
       memcpy (inhand, location, LOCS_SIZE * sizeof(int));
       return (0);
    }
-   for (i = 0; i <= LOBJECT; i++)
+   for (i = 0; i <= LOBJ; i++)
    {
       if ((inhand[i] == INHAND && location[i] != INHAND) ||
           (inhand[i] != INHAND && location[i] == INHAND))
@@ -5868,7 +5918,7 @@ void show_data ()
    
    rrefs = fopen ("game.rrefs", "r");
    
-   for (i = FOBJECT; i <= LTEXT; i++)
+   for (i = FOBJ; i <= LTEXT; i++)
    {
       if (rrefs)
       {
@@ -5882,14 +5932,14 @@ void show_data ()
       }
       
       fprintf (stderr, "%5d", *(value + i));
-      if (i >= FOBJECT && i <= LOBJECT)
+      if (i >= FOBJ && i <= LOBJ)
       {
          fprintf (stderr, " @ %4d", *(location + i));
          show_bits (i, OBJSIZE);
       }
-      else if (i >= FPLACE && i <= LPLACE )
-         show_bits (i, PLACESIZE);
-      else if (i >= FVARIABLE && i <= LVARIABLE )
+      else if (i >= FLOC && i <= LLOC )
+         show_bits (i, LOCSIZE);
+      else if (i >= FVAR && i <= LVAR )
          show_bits (i, VARSIZE);
       fprintf (stderr, "\n");
    }
@@ -5994,5 +6044,43 @@ void redo ()
    bitmod (cnt > acnt ? 's' : 'c', UNDO_STAT, UNDO_TRIM);
 }
 #endif /* UNDO */
+
+/*===========================================================*/
+
+#ifdef __STDC__
+void pcall (int procno)
+#else
+void pcall (procno)
+int procno;
+#endif
+{
+   fprintf (stderr, 
+      "\n*GLITCH* Called proc offest %d, but game's offset range is 0 to %d!\n",
+         procno, LPROC);
+#if STYLE >= 11
+   if (procno == BADWORD || procno == AMBIGWORD ||
+       procno == AMBIGTYPO || procno == SCENEWORD || procno == BADSYNTAX)
+#else
+#if STYLE > 1
+   if (procno == BADWORD || procno == AMBIGWORD)
+#  else
+   if (procno == BADWORD)
+#  endif
+#endif
+   {
+      fprintf (stderr, "   Probable cause: ");
+      if (procno == BADWORD)   fprintf (stderr, "bad word");
+#if STYLE > 1
+      if (procno == AMBIGWORD) fprintf (stderr, "ambiguous word");
+#endif
+#if STYLE >= 11
+      if (procno == AMBIGTYPO) fprintf (stderr, "ambiguous typo");
+      if (procno == SCENEWORD) fprintf (stderr, "mere scenery word");
+      if (procno == BADSYNTAX) fprintf (stderr, "bad syntax");
+#endif
+      fprintf (stderr, " in player command not handled by game's code.\n");
+   }
+   fprintf (stderr, "\n");                  
+}
 
 /*************************************************************/
