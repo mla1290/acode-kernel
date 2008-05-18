@@ -1,7 +1,9 @@
 /* adv00.c: A-code kernel - copyleft Mike Arnautov 1990-2008.
  */
-#define KERNEL_VERSION "12.5, MLA - 030 Apr 2008"
+#define KERNEL_VERSION "12.6, MLA - 18 May 2008"
 /*
+ * 18 May 08   MLA        BUG: adjust backup image when UNDOing!!
+ *                        BUG: save undo changes within multiple commands too!
  * 30 Apr 08   MLA        Added PROMPT.
  * 09 Apr 08   MLA        BUG: Fixed detail display.
  * 06 Apr 08   R.Mathews  bug: add MacOS to the list of OS with the '/' separator.
@@ -2348,13 +2350,6 @@ int insize;
    upcase = 1;
 #endif /* STYLE >= 11 */
 
-#ifdef UNDO
-   if (value [UNDO_STAT] >= 0)
-      save_changes ();
-   else if (diffs && dptr > diffs)
-      edptr = dptr = diffs;
-#endif /* UNDO */
-
 #ifdef ADVCONTEXT
 #  ifdef PROMPTED
    bitmod ('s', ADVCONTEXT, PROMPTED);
@@ -3253,6 +3248,14 @@ int textref;
 #  endif
 
 restart:
+
+#ifdef UNDO
+   if (value [UNDO_STAT] >= 0)
+      save_changes ();
+   else if (diffs && dptr > diffs)
+      edptr = dptr = diffs;
+#endif /* UNDO */
+
    if (tp [tindex] == NULL)
    {
       if (raw_comline [0] != '\0' && raw_comline [0] != '\n')
@@ -5993,6 +5996,7 @@ void undo ()
       cnt = acnt;
 #endif
    bitmod (cnt > acnt ? 's' : 'c', UNDO_STAT, UNDO_TRIM);
+   memcpy (image, IMAGE, sizeof (IMAGE));
    return;
 }
 
