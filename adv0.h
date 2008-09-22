@@ -60,6 +60,7 @@ extern int http_out (void);
 extern void http_init (void);
 extern void (*procs[])(void);
 extern void pcall (int);
+extern int typed (char *);
 #else
 extern void say ();
 extern int query ();
@@ -102,7 +103,8 @@ extern int http_in ();
 extern int http_out ();
 extern void http_init ();
 extern void (*procs[])();
-extern void pcall ();
+extern void pcall();
+extern int typed();
 #endif
 extern jmp_buf loop_back;
 extern int *value;

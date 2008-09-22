@@ -1,7 +1,13 @@
 /* adv00.c: A-code kernel - copyleft Mike Arnautov 1990-2008.
  */
-#define KERNEL_VERSION "12.6, MLA - 18 May 2008"
+#define KERNEL_VERSION "12.10, MLA - 22 Sep 2008"
 /*
+ * 21 Sep 08   MLA        Randomised texts should not repeat the same value.
+ *                        Also, cyclic text switches now cycle independently.
+ * 23 May 08   MLA        Improved handling of AGAIN.
+ *                        Added typed().
+ * 22 May 08   MLA        Postpone word swap for better parsing.
+ * 21 May 08   MLA        Bug: restore orphan refno in CGI mode!
  * 18 May 08   MLA        BUG: adjust backup image when UNDOing!!
  *                        BUG: save undo changes within multiple commands too!
  * 30 Apr 08   MLA        Added PROMPT.
@@ -531,6 +537,8 @@ char temp_word [WORDSIZE];
 #if STYLE >= 11
 #  define ORIG -1
    char orig [WORDSIZE];
+   char orig1 [WORDSIZE];
+   char orig2 [WORDSIZE];
 #  if defined(ALL) && defined(EXCEPT)
       int except_count;
       int except [100];
@@ -569,7 +577,7 @@ int amatch = 1;
 #include "adv5.h"
 
 #ifdef AGAIN
-   int fresh_line = 1;
+   int done_again;
 #endif /* AGAIN */
 
 #ifdef MEMORY
@@ -1962,7 +1970,12 @@ int qualifier;
          if (textqual <= 1)
             textqual = 0;
          else
-            textqual = irand (textqual);
+         {
+            textqual = irand (textqual - 1);
+            if (textqual >= value[what])
+               textqual++;
+         }
+         value[what] = textqual;
       }
       else if (text_info [twat] == INCREMENTAL_TEXT)
       {
@@ -2017,16 +2030,22 @@ int qualifier;
             swqual = (swqual == 1 || switch_size == 1) ? 0 : 1;
          if (swqual <= 0 || (swqual == 1 && what >= FTEXT))
 #else /* STYLE > 1 */
+#  if STYLE >= 11
+         if (swqual >= switch_size && what >= FTEXT &&
+            text_info[2 * (what - FTEXT)] == CYCLIC_TEXT)
+               swqual %= switch_size;
+#  endif
          if (swqual <= 0)
 #endif /* STYLE */
             ta = ea + 1;
          else
          {
-            ta = ta - 1 + 2 *
 #if STYLE == 1
+            ta = ta - 1 + 2 *
                ((swqual > switch_size) ? switch_size - 1 : swqual - 1);
             if (what < FTEXT) ta += 2;
 #else /* STYLE > 1 */
+            ta = ta - 1 + 2 *
                ((swqual >= switch_size) ? switch_size - 1 : swqual);
 #endif /* STYLE */
             offset = get_char (ta + 1);
@@ -2810,7 +2829,7 @@ int which_arg;
    int ra;
    char myword [WORDSIZE];
   
-   strcpy (myword, tp [tindex]);
+   strcpy (myword, which_arg == 0 ? orphan_word : tp [tindex]);
 #ifdef DWARVEN
    if (value [DWARVEN]) shift_down (myword, WORDSIZE);
 #endif /* DWARVEN */
@@ -3077,12 +3096,9 @@ done:
       }
 #endif /* DWARVEN */
    }
-   if (*refno <= BADWORD && amatch != -1)
-      tp [tindex + 1] = NULL; /* Discard rest of command */
 
 #if defined(FDIR) && defined(LDIR) 
-   else if ((*refno > FDIR && *refno < LDIR) && 
-            separator [tindex + 1] == ' ')
+   if ((*refno > FDIR && *refno < LDIR) && separator [tindex + 1] == ' ')
       separator [tindex + 1] = ';';
 #endif
    return;
@@ -3166,9 +3182,14 @@ void parse ()
    }
    tp [tindex] = NULL;
    separator [tindex] = '\n';
+
+   tindex = 0;
+   value [ARG1] = -1;
+   value [ARG2] = -1;
+   value [STATUS] = 0;
+                                    
    return;      
 }
-
 
 /*===========================================================*/
 
@@ -3182,8 +3203,11 @@ int textref;
    int type;
    int refno;
    int tadr;
-   int continuation;
+   int continuation = 0;
 
+   if (textref == -1) 
+      goto get_arg1;
+      
    if (value[STATUS] == -1 && value [ARG3] == -1)
    {
       printf ("\nSorry... This game does not support command line restore.\n\n");
@@ -3231,8 +3255,15 @@ int textref;
       orphan = arg1;
       (void) strncpy (orphan_word, arg1_word, 20);
    }
+#ifdef ADVCONTEXT
+   else if (cgi > 'h' && *orphan_word && orphan == 0)
+      find_word (&type, &orphan, &tadr, 0, 0);
+#endif
    else
+   {
       orphan = 0;
+      *orphan_word = '\0';
+   }
    bitmod ('c', (STATUS), (PLSCLARIFY));
 #endif /* PLSCLARIFY */
       
@@ -3264,7 +3295,7 @@ restart:
       while (comline [0] == '\0' || comline [0] == '\n')
       {
 #ifdef AGAIN
-         fresh_line = 1;
+         done_again = 0;
 #endif /* AGAIN */
 #ifdef LOC_STATS
          (void) printf ("\n(Locates: demanded %ld (+%ld), faults %ld (+%ld))",
@@ -3293,26 +3324,21 @@ restart:
 #endif /* ADVCONTEXT */
       }
       (void) scrchk (1);
-
-retry:
       parse ();
-      tindex = 0;
-      value [ARG1] = -1;
-      value [ARG2] = -1;
-      value [STATUS] = 0;
    }
 
+get_arg1:
+   *orig1 = '\0';
 if (tp[tindex] == NULL)
    goto restart;
    
-get_arg1:
-
 #if STYLE >= 11
    *orig = '\0';
    find_word (&type, &refno, &tadr, separator [tindex] == ',' ? 2 : 1, 1);
 #else
    find_word (&type, &refno, &tadr, separator [tindex] == ',' ? 2 : 1);
 #endif
+   strncpy (orig1, tp [tindex], WORDSIZE - 1);
    tindex++;
    if (type == NOISE)
    {
@@ -3321,42 +3347,6 @@ get_arg1:
          goto get_arg1;
    }
 
-#ifdef AGAIN
-#if STYLE >= 11
-   if (refno == AGAIN &&
-      ! ((separator [tindex] == ' ' || separator [tindex] == ',') && 
-         tp[tindex-1][0] == 'r' && tp[tindex-1][1] == '\0'))
-   {
-      if (separator [tindex] == ' ' || separator [tindex] == ',')
-      {
-         value [ARG1] = -AGAIN;
-         goto get_arg2;
-      }
-      else
-#else
-   if (refno == AGAIN)
-   {
-#endif /* STYLE >= 11 */
-      if (fresh_line)
-      {
-         if (*old_comline == '\n')
-            goto restart;
-
-         (void) strncpy (comline, old_comline, 160);
-         (void) strncpy (raw_comline, old_comline, 160);
-         goto retry;
-      }
-      else
-      {
-         tindex--;
-         while (separator [++tindex] == ' ');
-         value [ARG1] = arg1;     /* arg1/2_word still valid!  */
-         value [ARG2] = arg2;     /* as are value [STATUS] and */
-         return;                  /* varbits of STATUS         */
-      }
-   }
-
-#endif /* AGIAN */
 #ifdef PLSCLARIFY
    if ((bitest (STATUS, PLSCLARIFY) && refno <= LLOC) || continuation)
    {
@@ -3370,6 +3360,7 @@ get_arg1:
    value [STATUS] = 1;
 
 get_arg2:
+   *orig2 = '\0';
    if (separator [tindex] == ' ' && tp [tindex])
    {
 #if defined(FSPECIAL) && defined(LSPECIAL)
@@ -3405,6 +3396,7 @@ get_arg2:
 #else
       find_word (&type, &refno, &tadr, 2);
 #endif
+      strncpy (orig2, tp [tindex], WORDSIZE - 1);
 #if defined(FSPECIAL) && defined(LSPECIAL)
       amatch = bmatch;
 #endif
@@ -3417,9 +3409,6 @@ get_arg2:
    }
 
 got_command:
-#ifdef AGAIN
-   fresh_line = 0;
-#endif /* AGAIN */
    if (value [STATUS] == 1 && orphan)
    {
       if ((orphan > LOBJ && value [ARG1] < LOBJ) ||
@@ -3429,7 +3418,48 @@ got_command:
          value [ARG2] = orphan;
          (void) strncpy (arg2_word, orphan_word, 20);
       }
-      orphan = 0;         
+      orphan = 0;
+      *orphan_word = '\0';
+   }
+
+#ifdef AGAIN
+   if ((value [ARG1] == AGAIN || value [ARG2] == AGAIN) && tindex > done_again)
+   {
+      if (procs[AGAIN] != procs[0]) /* If ACTION AGAIN exists, call it */
+         (*procs[AGAIN])();         /* and if still AGAIN, go on to handle it */
+   }
+   if (value [ARG1] == AGAIN || value [ARG2] == AGAIN)
+   {
+      if (tp [done_again] == NULL)
+         goto restart;
+      if (done_again >= tindex)
+         goto get_arg1;
+      done_again = tindex;
+      tindex -= value [STATUS] + 1;
+      while (tindex > 0 && separator [tindex] != ';')
+         tindex--;;
+      if (tindex < 0)
+      {
+         if (*old_comline == '\n')
+            goto restart;
+         (void) strncpy (comline, old_comline, 160);
+         (void) strncpy (raw_comline, old_comline, 160);
+         parse ();
+      }
+      goto get_arg1;
+   }
+#endif /* AGAIN */
+
+   if (value [STATUS] == 2 &&
+       value [ARG2] >= FSPECIAL && value [ARG2] <= LSPECIAL &&
+      (value [ARG1] < FSPECIAL || value [ARG1] > LSPECIAL))
+   {
+      special (29, &value[0]);   /* Swap the command words! */
+      if (value [ARG2] >= BADWORD)
+      {
+         value [STATUS] = 1;
+         value [ARG2] = -1;
+      }
    }
 
    if (   value [ARG1] == BADWORD   || value [ARG2] == BADWORD
@@ -6085,6 +6115,18 @@ int procno;
       fprintf (stderr, " in player command not handled by game's code.\n");
    }
    fprintf (stderr, "\n");                  
+}
+
+/*===========================================================*/
+
+#ifdef __STDC__
+int typed (char *string)
+#else
+int typed (string)
+char *string;
+#endif
+{
+   return (strcmp(orig1, string) == 0 || strcmp(orig2, string) == 0);
 }
 
 /*************************************************************/
