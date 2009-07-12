@@ -1,4 +1,4 @@
-/* adv0.h: A-code kernel - copyleft Mike Arnautov 1990-2007.
+/* adv0.h: A-code kernel - copyleft Mike Arnautov 1990-2009.
  *
  * 24 May 07   Stuart Munro    Added check for _MSC_EXTENSIONS.
  *                             Also defined __STDC__ explicitly as 1.

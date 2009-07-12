@@ -1,5 +1,6 @@
-/* adv01.c: A-code kernel - copyleft Mike Arnautov 1990-2007.
+/* adv01.c: A-code kernel - copyleft Mike Arnautov 1990-2009.
  *
+ * 13 Feb 09   MLA             Don't need list_saved for styles < 11.
  * 24 May 07   Stuart Munro    Added check for _MSC_EXTENSIONS.
  *                             Also define __STDC__ explicitly as 1.
  * 14 May 07   MLA             Split off from adv00.c (M$ sucks!)
@@ -101,6 +102,8 @@ int delay;
 
 /*===========================================================*/
 
+#if STYLE >= 11
+
 #if (!defined(MSDOS) && !defined(_WIN32)) || defined (DJGPP)
 #include <dirent.h>
 #endif
@@ -170,6 +173,8 @@ char *last_name;
    if (action) PRINTF (".\n")
    return (cnt);
 }
+
+#endif /* STYLE */
 
 /**********************************************************************/
 

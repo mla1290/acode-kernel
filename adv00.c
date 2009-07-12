@@ -1,7 +1,16 @@
-/* adv00.c: A-code kernel - copyleft Mike Arnautov 1990-2008.
+/* adv00.c: A-code kernel - copyleft Mike Arnautov 1990-2009.
  */
-#define KERNEL_VERSION "12.10, MLA - 22 Sep 2008"
+#define KERNEL_VERSION "12.17, MLA - 12 Jul 2009"
 /*
+ * 31 Mar 09   MLA        Added last output auto-restore in HTTP mode.
+ * 22 Mar 09   MLA        Added auto-restore in HTTP mode.
+ * 07 Mar 09   MLA        Added auto-save in HTTP mode.
+ * 16 Feb 09   MLA        Added HTTP mode.
+ * 29 Jan 09   MLA        Bug: Don't use orig1/orig2 for style < 11.
+ *                        bug: Don't define typed() for style < 11.
+ * 12 Nov 08   MLA        Added QT mode.
+ * 22 Oct 08   MLA        Bug: Fixed fakecom word retrieval in fake().
+ * 02 Oct 08   MLA        Bug: Always check for FSPECIAL and LSPECIAL being defined!
  * 21 Sep 08   MLA        Randomised texts should not repeat the same value.
  *                        Also, cyclic text switches now cycle independently.
  * 23 May 08   MLA        Improved handling of AGAIN.
@@ -11,6 +20,8 @@
  * 18 May 08   MLA        BUG: adjust backup image when UNDOing!!
  *                        BUG: save undo changes within multiple commands too!
  * 30 Apr 08   MLA        Added PROMPT.
+ * 12 Apr 08   MLA        Pass game name in AJAXTEST call to play.
+ * 10 Apr 08   MLA        AJAXTEST added.
  * 09 Apr 08   MLA        BUG: Fixed detail display.
  * 06 Apr 08   R.Mathews  bug: add MacOS to the list of OS with the '/' separator.
  * 03 Apr 08   MLA        Bug: outline() needs the terminate arg if using readline.
@@ -380,13 +391,17 @@
  * extern void exit ();
  */
 #ifdef __STDC__
-void shift_up (char *);
-void shift_down (char *, int);
-extern int list_saved (int, char *);
+   void shift_up (char *);
+   void shift_down (char *, int);
+#  if STYLE >= 11
+      extern int list_saved (int, char *);
+#  endif
 #else
-void shift_up();
-void shift_down();
-extern int list_saved();
+   void shift_up();
+   void shift_down();
+#  if STYLE >= 11
+      extern int list_saved();
+#  endif
 #endif
 #ifdef READLINE
 #include <readline/readline.h>
@@ -427,24 +442,24 @@ char *dump_name = NULL;
 #  define BLOCK_END    '\364'
 #  define CENTRE_START '\363'
 #  ifdef DWARVEN
-#     define DWARVISH     '\362'
+#     define DWARVISH  '\362'
 #  endif /* DWARVEN */
-#  if STYLE >= 11
-#     define VHOLDER      '\361'
-#     define PARA_START   '\360'
-#     define PARA_END     '\357'
-#  endif
+#  define VHOLDER      '\361'
 #endif /* STYLE */
+#define PARA_START     '\360'
+#define PARA_END       '\357'
+
+#ifdef QT
+#  define NO_SLOW
+#  undef GLK
+#  undef READLINE
+#  undef HTTP
+#endif /* QT */
 
 #ifdef HTTP
 #  define NO_SLOW
 #  undef GLK
 #  undef READLINE
-#  ifdef _WIN32
-#     define sclose closesocket
-#  else
-#     define sclose close
-#  endif
 #endif
 
 #ifdef GLK
@@ -565,11 +580,9 @@ int amatch = 1;
 #else
    int end_pause = 0;
 #endif
-#ifdef ADVCONTEXT
-   int cgi = 0;
-   char cgicom [160];
-   char *cgi_name = ".C.adv";
-#endif
+int cgi = 0;
+char cgicom [160];
+char *cgi_name = CGINAME;
 
 #include "adv3.h"
 #include "adv4.h"
@@ -595,7 +608,7 @@ int amatch = 1;
 char *tp [100];
 char separator [100];
 short tindex;
-#ifdef GLK
+#if defined(GLK) || defined(QT) || defined(HTTP)
    short Screen = 32767;
    short Linlen = 32767;
    short Margin = 0;
@@ -657,6 +670,7 @@ int location_all;
 #     endif
 #  endif
 #endif
+int query_flag = 0;
 int type_all;
 char title [80];
 int titlen;
@@ -1291,9 +1305,7 @@ int clear;
    char reply [160];
    int need;
 
-#ifdef ADVCONTEXT
    if (cgi) return (0);
-#endif
    if (clear || com_name) 
       lincnt = 0;
    else if (++lincnt >= Screen)
@@ -1338,7 +1350,6 @@ char *str;
       putchar(*str++);
    return;
 }
-   
 
 /*===========================================================*/
 
@@ -1360,7 +1371,10 @@ char *tptr;
    int trulen;
    char *aptr = tptr;
    
-#ifdef ADVCONTEXT
+#ifdef QT
+   putchar(1);
+   putchar (type == BLOCK_START ? '=' : '+');
+#else /* !QT */
    if (cgi)
    {
       printf ("<center>");
@@ -1368,7 +1382,7 @@ char *tptr;
          printf ("<table><tr><td>");
       putchar ('\n');
    }
-#endif
+#endif /* QT */
    while (*aptr && *aptr != BLOCK_END)
    {
       skip = 0;
@@ -1410,23 +1424,20 @@ char *tptr;
    glk_set_style (style_Preformatted);
    hlead = 2;   /* Was 5! */
 #endif
+#ifdef QT
+   hlead = 0;
+#endif /* QT */
    while (*tptr && *tptr != BLOCK_END)
    {
       scrchk (0);
-#ifdef GLK
+#if defined(GLK) || defined (QT)
       tptr += lead;
 #endif
-#ifdef ADVCONTEXT
       if (cgi)
          tptr += lead;
       else if (hlead < 0)
          tptr -= hlead;
       else if (hlead > 0 && ! cgi)
-#else
-      if (hlead < 0)
-         tptr -= hlead;
-      else if (hlead > 0)
-#endif
       {
          for (len = 0; len < hlead; len++)
          {
@@ -1435,22 +1446,27 @@ char *tptr;
       }
       while (*tptr && *tptr != '\n' && *tptr != BLOCK_END)
       {
-#ifdef ADVCONTEXT
-         if (cgi && type == BLOCK_START && *tptr == ' ')
-         {
-            if (log_file) (void)fputc(*tptr, log_file);
-            tptr++;
-            outstr("&nbsp;");
-            if (*tptr == ' ')
-               outstr("&nbsp;");
-         }
-#else
          if (type == BLOCK_START && *tptr == ' ')
          {
             if (log_file) (void)fputc(*tptr, log_file);
-            putchar(*tptr++);
+            if (cgi)
+            {
+               tptr++;
+               outstr("&nbsp;");
+               if (*tptr == ' ')
+                  outstr("&nbsp;");
+            }
+            else
+            {
+#ifdef QT
+               putchar(1);
+               putchar('_');
+               tptr++;
+#else /* !QT */
+               putchar(*tptr++);
+#endif /* QT */
+            }
          }
-#endif /* ADVCONTEXT */
          else
          {
             PUTCHARA (tptr);
@@ -1458,24 +1474,23 @@ char *tptr;
       }
       if (*tptr == '\n')
       {
-#ifdef ADVCONTEXT
          if (cgi && *tptr != BLOCK_END) 
                printf ("<br />");
-#endif
          PUTCHARA (tptr);
       }
    }
-#ifdef ADVCONTEXT
    if (cgi)
    {
       if (type == BLOCK_START)
          printf ("</td></tr></table>");
       printf ("</center>");
    }
-#endif
 #ifdef GLK
    glk_set_style (style_Normal);
 #endif
+#ifdef QT
+   putchar('\002');
+#endif /* QT */
    if (*tptr)
       tptr++;
 
@@ -1521,28 +1536,20 @@ int terminate;
 #endif /* BLOCK_END */
    lptr++;                 /* Point just beyond last accepted char */
    
-#ifdef ADVCONTEXT
-   if (cgi)
-      { PRINTF1 ("<p>"); }
-#endif
    if (frag <= 0)          /* It's a complete text */
    {
-#ifdef ADVCONTEXT
-      if (! cgi && ! terminate)     /* If not exiting, append a prompt to the buffer */
-#else
-      if (! terminate)     /* If not exiting, append a prompt to the buffer */
-#endif
+      if (!cgi && ! terminate)     /* If not exiting, append a prompt to the buffer */
       {      
-#  if STYLE > 1
+#  if STYLE > 1 && !defined(QT)
          if (!compress && frag == 0 && lptr > text_buf)
          {
             PRINTF ("\n ");
          }
-#  endif /* STYLE > 1 */
+#  endif /* STYLE > 1 && !QT */
 #if STYLE > 11 && defined (PROMPT)
          if (value [PROMPT])
          {
-            PRINTF ("\n");
+            outchar('\n');
             say (0, value [PROMPT], 0);
             lptr--;
             while (*lptr == '\n' || *lptr == ' ')
@@ -1557,11 +1564,7 @@ int terminate;
    }
    else                    /* If a fragment, add a blank to it */
    {
-#ifdef ADVCONTEXT
       *lptr++ = (cgi ? '\n' : ' ');
-#else
-      *lptr++ = ' ';
-#endif
       text_len++;
    }
    *lptr = '\0';           /* Terminate the string */
@@ -1572,8 +1575,15 @@ int terminate;
    {
       while (*tptr == '\n')
          tptr++;
-      if (!compress)
+      if (!cgi && !compress)
          tptr--;
+   }
+      
+   if (cgi)
+   {
+      PRINTF1 ("<p>");
+      if (! *tptr && cgi == 'h')
+         { PRINTF1 ("</p>"); }
    }
       
    lptr = tptr;            /* Advance line pointer beyond ignored chars */
@@ -1594,6 +1604,32 @@ int terminate;
  */
    while ((text_char = *tptr++)) /* Remember this char, but point to next one */
    {
+#ifdef QT
+      if (text_char == BLOCK_START || text_char == CENTRE_START)
+         tptr = doblock (text_char, tptr);
+#ifdef NQT
+      if (text_char == BLOCK_START || text_char == CENTRE_START)
+      {
+         putchar(1);
+         putchar(text_char == BLOCK_START ? '=' : '+');
+      }
+#endif /* NQT */
+      else if (text_char == BLOCK_END)
+      {
+         putchar(2);
+      }
+      else if (text_char == NBSP)
+      {
+         putchar(1);
+         putchar('_');
+      }
+      else
+      {
+         putchar(text_char);
+      }
+   }
+   putchar(0);
+#else /* !QT */
 
 /* Older style A-code versions signalled text fragments by prepending the
  * IGNORE_EOL marker to the last line. These markers can be left in the text
@@ -1601,8 +1637,8 @@ int terminate;
  */ 
       if (text_char == IGNORE_EOL)
       {
-         line_len++;
          ignore_eol = 1;
+         line_len++;
          continue;
       }
       if (text_char == '\n' && ignore_eol)
@@ -1644,13 +1680,11 @@ int terminate;
          if (tptr != lptr)
             line_len++;          /* Just a "normal" char */
 
-/* Line feeds need special treatment. ACDC alrteady stripped all "icidental"
+/* Line feeds need special treatment. ACDC alrteady stripped all "incidental"
  * ends of line, so what is left, must be honoured.
  */      
       if (text_char == '\n')
       {
-
-#ifdef ADVCONTEXT
          if (cgi)
          {
             if (lastchar == PARA_END)
@@ -1658,8 +1692,6 @@ int terminate;
             else if (*tptr == '\n')
                lastchar = *(tptr - 1) = PARA_END;
 	 }
-#endif
-
          if (*tptr == '\n') 
             continue;
 
@@ -1753,12 +1785,16 @@ int terminate;
       (void) outline (lptr, line_len, 0, 0);
 #endif /* READLINE */
 
+#endif /* !QT */
+
    lptr = text_buf;
    *lptr++ = '\n';
    *lptr = '\0';
    text_len = 1;
    fflush (stdout);
 }
+
+/*===========================================================*/
 
 #define VOC_FLAG     128
 #define QUIP_FLAG     64
@@ -1776,8 +1812,6 @@ int terminate;
 #define VALUE_FLAG     1
 
 #ifdef NEST_TEXT
-
-/*===========================================================*/
 
 #ifdef __STDC__
 void nested_say (int addr, int key, int qualifier)
@@ -1956,9 +1990,9 @@ int qualifier;
 
 #define RANDOM_TEXT      1
 #define INCREMENTAL_TEXT 2
-#define CYCLIC_TEXT      3
-#define ASSIGNED_TEXT    4
-#define TIED_TEXT        5
+#define CYCLIC_TEXT      4
+#define ASSIGNED_TEXT    8
+#define TIED_TEXT       16
 
    if (what >= FTEXT)
    {
@@ -2165,10 +2199,8 @@ int text_char;
    if (text_char == TAG_START)
    {
       html_tag = 1;
-#ifdef ADVCONTEXT
       if (cgi)
          *lptr++ = '<';
-#endif
       return;
    }
    else if (html_tag)
@@ -2176,20 +2208,13 @@ int text_char;
       if (text_char == TAG_END)
       {
          html_tag = 0;
-#ifdef ADVCONTEXT
          if (cgi)
             *lptr++ = '>';
-#endif
          return;
       }
    }
-#ifdef ADVCONTEXT
    if (html_tag && cgi == 0)
       return;
-#else
-   if (html_tag)
-      return;
-#endif /* ADVCONTEXT */
 #endif /* TAG */
 
    if (text_char == '\n')
@@ -2208,7 +2233,6 @@ int text_char;
 #ifdef NBSP
    if (text_char == NBSP)
    {
-#ifdef ADVCONTEXT
       if (cgi)
       {
          strcpy(lptr, "&nbsp;");
@@ -2216,7 +2240,6 @@ int text_char;
          return;
       }
       else
-#endif /* ADVCONTEXT */
          text_char = ' ';
    }
 #endif /* NBSP */
@@ -2234,7 +2257,6 @@ int text_char;
       upcase = 1;
 #endif /* STYLE >= 11 */
 
-#ifdef ADVCONTEXT
    if (cgi && (text_char == '<' || text_char == '>'))
    {
       *lptr++ = '&';
@@ -2248,10 +2270,6 @@ int text_char;
       text_len++;
       *lptr = text_char;
    }
-#else
-   text_len++;
-   *lptr = text_char;
-#endif /* ADVCONTEXT */
 #ifdef DWARVEN
    if (value [DWARVEN] || extra_dwarvish)
       shift_up (lptr);
@@ -2342,6 +2360,31 @@ void save_changes ();
 /*===========================================================*/
 
 #ifdef __STDC__
+void close_files (void)
+#else
+void close_files ()
+#endif
+{
+   if (com_file)
+      fclose (com_file);
+      
+   if (log_file)
+   {
+      int cnt;
+      fprintf (log_file, "\nINTERACT\n");
+      for (cnt = 0; cnt < 39; cnt++)
+         fprintf (log_file, "*-");
+      fprintf (log_file, "*\n");
+      fclose (log_file);
+   }
+#if STYLE >= 11
+   if (word_buf) free (word_buf);
+#endif
+}
+
+/*===========================================================*/
+
+#ifdef __STDC__
 void getinput (char *inbuf, int insize)
 #else
 void getinput (inbuf, insize)
@@ -2354,20 +2397,51 @@ int insize;
 #endif
    char *cptr;
    char mybuf [170];
-   *inbuf = '\0';
 #ifdef DWARVEN
    extra_dwarvish = 0;
 #endif
 #ifdef ADVCONTEXT
-   if (text_len == 1 && cgi)
+   if (cgi == 'h' && text_len > 3 && value [ADVCONTEXT] == 0 && !query_flag)
+#else /* !ADVCONTEXT */
+   if (cgi == 'h' && text_len > 3 && !query_flag && !quitting)
+#endif /* ADVCONTEXT */
+   {
+      FILE *adl;
+      char name[64];
+      special (998, &value [0]);
+      sprintf (name, "%s.adl", CGINAME);
+      if ((adl = fopen(name, "w")) != NULL)
+      {
+         fwrite(text_buf, 1, text_len, adl);
+         fclose (adl);
+      }
+   }
+   if (text_len == 1 && cgi >= 'h')
       text_len = 0;
-#endif
+#ifdef QT
+   if (value[ADVCONTEXT] > 2)
+   {      
+      outchar(1);
+      outchar('?');
+   }
+#endif /* QT */
    if (text_len)
       outbuf (0);
+   if (cgi == 'h')
+   {
+      putchar (0176);
+      fflush (stdout);
+      if (!inbuf)
+      {
+         close_files();
+         exit (0);
+      }
+   }
    scrchk (1);
 #if STYLE >= 11
    upcase = 1;
 #endif /* STYLE >= 11 */
+   *inbuf = '\0';
 
 #ifdef ADVCONTEXT
 #  ifdef PROMPTED
@@ -2383,10 +2457,11 @@ int insize;
    {
       strncpy (inbuf, cgicom, insize - 1);
       cgi = 'z';
+      return;
    }
-   else
-#endif /* ADVCONTEXT */
-        if (com_file)
+#endif
+   query_flag = 0;
+   if (com_file)
    {
       while (1)
       {
@@ -2467,7 +2542,6 @@ char *aptr;
 {
    if (*aptr == '\0') return (aptr);
    
-#ifdef ADVCONTEXT
    if (cgi && (*aptr == PARA_START || *aptr == PARA_END))
    { 
       if (*aptr++ == PARA_START)
@@ -2478,12 +2552,13 @@ char *aptr;
    else if (cgi && *aptr == '\n')
       { PRINTF1 ("<br />\n"); aptr++; }
    else
-#endif /* ADVCONTEXT */
       { PUTCHARA (aptr); }
    return (aptr);
 }
 
 /*===========================================================*/
+
+#ifndef QT
 
 #ifdef __STDC__
 #ifdef READLINE
@@ -2516,21 +2591,15 @@ int fill;
    char lastchar;
    static int flip_flop = 1;
 
-#ifdef ADVCONTEXT
    if (! cgi)
    {
-#endif
       if (text_len - (lptr - text_buf) >= Maxlen && scrchk (0) != 0)
          return lptr;
       if ((need = Margin))
          while (need--)
             { PUTCHAR (' '); }
-#ifdef ADVCONTEXT
    }
    if (cgi || break_count <= 0 || fill == 0 || char_count == Maxlen)
-#else
-   if (break_count <= 0 || fill == 0 || char_count == Maxlen)
-#endif
    {
       while (char_count-- > 0)
       {
@@ -2546,15 +2615,11 @@ int fill;
 #else
          aptr = filter_char (aptr);
 #endif /* SLOW */
-#ifdef ADVCONTEXT
          if (cgi && *(aptr - 1) == PARA_END)
             return (aptr);
-#endif
       }
-#ifdef ADVCONTEXT
       if (cgi && *aptr == '\0')
          { PRINTF1 ("</p>\n"); }
-#endif /*ADVCONTEXT */
    }
    else
    {
@@ -2609,6 +2674,8 @@ int fill;
    return (aptr);
 }
 
+#endif /* !QT */
+
 /*===========================================================*/
 
 #ifdef __STDC__
@@ -2640,6 +2707,11 @@ int refno;
 {
    int word;
    
+   if (textadr[refno])
+   {
+      (void) advcpy (which_arg == 1 ? arg1_word : arg2_word, textadr [refno]);
+      return;
+   }
    for (word = 0; word < VOCAB_SIZE; word++)
    {
       if (voc_refno [word] == refno)
@@ -3168,7 +3240,7 @@ void parse ()
             cptr++;
       separator [tindex + 1] = *cptr;
       *cptr++ = '\0';
-/* Convert ANDs into comma separators *unless* approsimate matching is
+/* Convert ANDs into comma separators *unless* approximate matching is
  * suppressed, in which case we just discard the AND -- the latter
  * is an Adv770 specific fudge to allow a sensible response to
  * REST AND CONTEMPLATE in the "little joke" stage of the game.
@@ -3182,12 +3254,11 @@ void parse ()
    }
    tp [tindex] = NULL;
    separator [tindex] = '\n';
-
    tindex = 0;
    value [ARG1] = -1;
    value [ARG2] = -1;
    value [STATUS] = 0;
-                                    
+
    return;      
 }
 
@@ -3205,14 +3276,16 @@ int textref;
    int tadr;
    int continuation = 0;
 
-   if (textref == -1) 
+   if (textref == -1)
       goto get_arg1;
-      
+
+#if STYLE >= 11
    if (value[STATUS] == -1 && value [ARG3] == -1)
    {
       printf ("\nSorry... This game does not support command line restore.\n\n");
       exit (1);
    }
+#endif /* STYLE */
    if (value [STATUS] < 90 || value [STATUS] >= LTEXT)
       amatch = 1;
    else if (value [STATUS] == 99)
@@ -3256,7 +3329,7 @@ int textref;
       (void) strncpy (orphan_word, arg1_word, 20);
    }
 #ifdef ADVCONTEXT
-   else if (cgi > 'h' && *orphan_word && orphan == 0)
+   else if (cgi >= 'h' && *orphan_word && orphan == 0)
       find_word (&type, &orphan, &tadr, 0, 0);
 #endif
    else
@@ -3328,17 +3401,17 @@ restart:
    }
 
 get_arg1:
-   *orig1 = '\0';
 if (tp[tindex] == NULL)
    goto restart;
    
 #if STYLE >= 11
+   *orig1 = '\0';
    *orig = '\0';
    find_word (&type, &refno, &tadr, separator [tindex] == ',' ? 2 : 1, 1);
+   strncpy (orig1, tp [tindex], WORDSIZE - 1);
 #else
    find_word (&type, &refno, &tadr, separator [tindex] == ',' ? 2 : 1);
 #endif
-   strncpy (orig1, tp [tindex], WORDSIZE - 1);
    tindex++;
    if (type == NOISE)
    {
@@ -3360,7 +3433,9 @@ if (tp[tindex] == NULL)
    value [STATUS] = 1;
 
 get_arg2:
+#if STYLE >= 11
    *orig2 = '\0';
+#endif
    if (separator [tindex] == ' ' && tp [tindex])
    {
 #if defined(FSPECIAL) && defined(LSPECIAL)
@@ -3393,10 +3468,10 @@ get_arg2:
 #endif /* SAY */
       *orig = '\0';
       find_word (&type, &refno, &tadr, 2, 1);
+      strncpy (orig2, tp [tindex], WORDSIZE - 1);
 #else
       find_word (&type, &refno, &tadr, 2);
 #endif
-      strncpy (orig2, tp [tindex], WORDSIZE - 1);
 #if defined(FSPECIAL) && defined(LSPECIAL)
       amatch = bmatch;
 #endif
@@ -3450,6 +3525,7 @@ got_command:
    }
 #endif /* AGAIN */
 
+#if defined(FSPECIAL) && defined(LSPECIAL)
    if (value [STATUS] == 2 &&
        value [ARG2] >= FSPECIAL && value [ARG2] <= LSPECIAL &&
       (value [ARG1] < FSPECIAL || value [ARG1] > LSPECIAL))
@@ -3461,6 +3537,7 @@ got_command:
          value [ARG2] = -1;
       }
    }
+#endif
 
    if (   value [ARG1] == BADWORD   || value [ARG2] == BADWORD
 #if STYLE > 1
@@ -3591,6 +3668,7 @@ int textref;
       (void) scrchk (1);
 
 try_again:
+   query_flag = 1;
    getinput (reply, 10);
    (void) scrchk (1);
 #ifdef DWARVEN
@@ -3682,44 +3760,19 @@ FILE *infile;
    while (isdigit (*gptr) || *gptr == '.')
    {
       if (*gptr == '.') { majvalg = minvalg; minvalg = 0; }
-      else              minvalg = 10 * minvalg + *gptr - '0';
+      else                minvalg = 10 * minvalg + *gptr - '0';
       gptr++;
    }
    while (isdigit (tchr) || tchr == '.')
    {
       if (tchr == '.') { majvalt = minvalt; minvalt = 0; }
-      else              minvalt = 10 * minvalt + tchr - '0';
+      else               minvalt = 10 * minvalt + tchr - '0';
       tchr = fgetc (infile);
    }
    if (majvalg != majvalt) return (1);
    if (minvalg < minvalt) return (1);
    while (tchr != '\n') tchr = fgetc (infile);
    return (0);
-}
-
-/*===========================================================*/
-
-#ifdef __STDC__
-void close_files (void)
-#else
-void close_files ()
-#endif
-{
-   if (com_file)
-      fclose (com_file);
-      
-   if (log_file)
-   {
-      int cnt;
-      fprintf (log_file, "\nINTERACT\n");
-      for (cnt = 0; cnt < 39; cnt++)
-         fprintf (log_file, "*-");
-      fprintf (log_file, "*\n");
-      fclose (log_file);
-   }
-#if STYLE >= 11
-   if (word_buf) free (word_buf);
-#endif
 }
 
 /*===========================================================*/
@@ -3749,7 +3802,7 @@ int key;
    if (key < 0)
    {
 #ifdef ADVCONTEXT
-      if (cgi > 'h')
+      if (cgi >= 'h')
       {
          if ((memory_file = fopen (fname, RMODE)) != NULL)
          {
@@ -3777,7 +3830,7 @@ int key;
       }
       memcpy (image_ptr, IMAGE, IMAGE_SIZE);
 #ifdef ADVCONTEXT
-      if (cgi > 'h')
+      if (cgi >= 'h')
       {
          if ((memory_file = fopen (fname, WMODE)) != NULL &&
             fwrite (image_base, 1, IMAGE_SIZE, memory_file) == IMAGE_SIZE)
@@ -3792,7 +3845,7 @@ int key;
    else
    {
 #ifdef ADVCONTEXT
-      if (cgi > 'h')
+      if (cgi >= 'h')
       {
          if ((image_ptr = (char *) malloc (IMAGE_SIZE)) != NULL &&
              (memory_file = fopen (fname, RMODE)) != NULL &&
@@ -3851,7 +3904,7 @@ int *var;
 #ifndef ADVCONTEXT
 try_again:
 #endif
-         if (val >= 0)
+         if (val != -1)
          {
             if (*long_word && 
                strncmp (long_word, arg2_word, 16) == 0)
@@ -3876,6 +3929,10 @@ try_again:
          else
             (void) make_name (file_name, save_name);
 #else
+      case 999:
+         if (key == 999)
+            strncpy (file_name, cgi_name, WORDSIZE - 1);
+         else if (val == -1)
          {
             if (key == 1)
             {
@@ -3885,11 +3942,8 @@ try_again:
             {
 #if STYLE >= 11
                int cnt = -1;
-#ifdef ADVCONTEXT
                if (cgi < 'x')
-#endif /* ADVCONTEXT */
                   cnt = list_saved (0, file_name);
- fprintf(stderr, "Returned count: %d\n", cnt);
                if (cnt == 0)
                   PRINTF (
    "Can't see any saved games here, but you may know of some elsewhere.\n")
@@ -3901,9 +3955,7 @@ try_again:
                else
                {
                   PRINTF ("You have the following saved games: ")
-#ifdef ADVCONTEXT
                   if (cgi < 'x')
-#endif /* ADVCONTEXT */
                      (void) list_saved (1, NULL);
                }
 #endif
@@ -3947,6 +3999,8 @@ got_name:
          }
          else if (key == 999 || key == 997)
          {
+            if (cgi == 'h' && key == 999)
+               return (0);
             PRINTF ("Oops! We seem to have lost your current game session!\n");
             PRINTF ("\nSorry about that!\n");
             LOGERROR(errno);
@@ -3958,24 +4012,22 @@ got_name:
             *var = 1;
             return (0);
          }
-#ifdef ADVCONTEXT
       case 998:
          if (key == 998) 
          {
             make_name (cgi_name, save_name);
-            if (value [ADVCONTEXT] == 0) value [ADVCONTEXT] = 1;
+#ifdef ADVCONTEXT
+            if (value [ADVCONTEXT] == 0 && cgi != 'h') value [ADVCONTEXT] = 1;
             *qcon = value [ADVCONTEXT];
+#endif /* ADVCONTEXT */
          }
          else
          {
             if (key != 1) return (0);
          }
-#endif /* ADVCONTEXT */
          if ((game_file = fopen (save_name, WMODE)) == NULL)
          {
-#ifdef ADVCONTEXT
-            if (key != 998) *var = 1;
-#endif /* ADVCONTEXT */
+            *var = 1;
             return (1);
          }
          (void) time ((time_t *) &tval[0]);
@@ -4000,18 +4052,16 @@ got_name:
          CHKSUM(IMAGE + OFFSET_OBJBIT, OBJBIT_SIZE)
          CHKSUM(IMAGE + OFFSET_LOCBIT, LOCBIT_SIZE)
          CHKSUM(IMAGE + OFFSET_VARBIT, VARBIT_SIZE)
-#ifdef ADVCONTEXT
-         if (cgi > 'h' && key == 998)
+         if (cgi >= 'h' && key == 998)
          {
             CHKSUM(qwords, sizeof(qwords));
             CHKSUM(qvals, sizeof(qvals));
          }
-#endif /* ADVCONTEXT */
          (void) fwrite (&chksum, sizeof (int), 1, game_file);
          (void) fwrite (tval, 1, sizeof(time_t), game_file);
          (void) fwrite (IMAGE, 1, IMAGE_SIZE, game_file);
-#ifdef ADVCONTEXT
-         if (cgi > 'h' && key == 998)
+#if STYLE >=11
+         if (cgi >= 'h' && key == 998)
          {
             (void) fwrite (qwords, sizeof (char), sizeof (qwords), game_file);
             (void) fwrite (qvals, sizeof (char), sizeof (qvals), game_file);
@@ -4022,15 +4072,15 @@ got_name:
             (void) fwrite (long_word, sizeof (char), sizeof (long_word),
                game_file);
          }
-#endif /* ADVCONTEXT */
+#endif
          *var = (ferror (game_file)) ? 1 : 0;
          (void) fclose (game_file);
 #ifdef UNDO
-         if (value [UNDO_STAT] >= 0 && diffs && (diffs < dptr || cgi > 'h'))
+         if (value [UNDO_STAT] >= 0 && diffs && (diffs < dptr || cgi >= 'h'))
          {
             strcpy (save_name + strlen(save_name) - 3, "adh");
             if (((diffs && dptr > diffs + 4) || 
-               (cgi > 'h' && value [ADVCONTEXT] <= 1)) &&
+               (cgi >= 'h' && value [ADVCONTEXT] <= 1)) &&
                   (game_file = fopen (save_name, WMODE)))
             {
                int len = dptr - diffs;
@@ -4100,14 +4150,12 @@ restore_it:
             return (0);
          }
          chksav = 0;
-#ifdef ADVCONTEXT
-         if (cgi < 'x')
+         if (cgi < 'h')
          {
             *var = memstore (2);
             if (*var != 0)
                return (0);
          }
-#endif
          if (scratch == NULL)
          {
             scratch = (char *) malloc (IMAGE_SIZE);
@@ -4143,7 +4191,7 @@ restore_it:
             (void) fread (scratch, 1, imgsiz, game_file);
          }
 #ifdef ADVCONTEXT
-         if (cgi > 'h' && key == 999)
+         if (cgi >= 'h' && key == 999)
          {
             (void) fread (qwords, sizeof (char), sizeof (qwords), game_file);
             (void) fread (qvals, sizeof (char), sizeof (qvals), game_file);
@@ -4204,7 +4252,7 @@ restore_it:
                while (val < LTEXT)
                   *(value + (val++)) = 0;
 #ifdef ADVCONTEXT
-            if (cgi > 'h' && key == 999)
+            if (cgi >= 'h' && key == 999)
             {
                CHKSUM(qwords, sizeof(qwords));
                CHKSUM(qvals, sizeof(qvals));
@@ -4275,13 +4323,13 @@ restore_it:
 	    }            
          }
 #endif /* UNDO */
-         *var = 0;
+         *var = (key == 999 && cgi == 'h') ? 999 : 0;
          return (0);
 
       case 3:          /* Delete saved game */
 #ifdef ADVCONTEXT
          (void) make_name (arg2_word, save_name);
-#endif         
+#endif /* ADVCONTEXT */
          *var = unlink (save_name);
  if (*var)
  {
@@ -4598,27 +4646,21 @@ int initialise ()
 
 #ifndef GLK
 #ifdef ADVCONTEXT
-   if (cgi != 'y' && cgi != 'H')
+   if (cgi != 'y')
 #else
    if (dump_name == NULL || *dump_name == '\0')
 #endif
 #endif /* ! GLK */
    {
-#ifdef ADVCONTEXT
       if (cgi)
       {
-         if (cgi == 'h')
-            cgi = 'H';
          PRINTF1 ("<p>");
       }
-#endif
       PRINTF2 ("\n[A-code kernel version %s]\n", KERNEL_VERSION);
-#ifdef ADVCONTEXT
       if (cgi)
       {
          PRINTF1 ("</p>\n");
       }
-#endif
    }
    *data_file = '\0';
    if (SEP != '?')
@@ -4755,9 +4797,7 @@ int initialise ()
       if ((log_file = fopen (log_name, "a+")) == NULL)
          (void) printf ("(Sorry, unable to open log file...)\n");
       else 
-#ifdef ADVCONTEXT
       if (cgi == 0 || cgi == 'x')
-#endif /* ADVCONTEXT */
          (void) fprintf (log_file, "%s: %u\n", GAMEID, mainseed);
    }
 
@@ -4828,6 +4868,19 @@ void glk_main (void)
 
 /*===========================================================*/
 
+void zap_cgi_dump (void)
+{
+   char name [64];
+   int len =sprintf (name, "%s.adv", CGINAME) - 1;
+   unlink (name);
+   *(name + len) = 'h';
+   unlink (name);
+   *(name + len) = 'l';
+   unlink (name);
+}
+
+/*===========================================================*/
+
 #  ifdef __STDC__
 int main (int argc, char **argv)
 #  else
@@ -4842,7 +4895,11 @@ char **argv;
    char *cptr;
    char *prog = *argv;
    char *opt;
-   
+#ifdef AJAXTEST
+   char playpath [256];
+   strncpy (playpath, *argv, 255);
+   *(playpath + 255) = 0;
+#endif /* AJAXTEST */
    if (Linlen == 0) Linlen = 32767;
    if (Screen == 0) Screen = 32767;
    Maxlen = Linlen - 2 * Margin;
@@ -4905,21 +4962,19 @@ char **argv;
 #endif
          else if (*kwrd == 'l')
             log_wanted = 1;
-#if defined(ADVCONTEXT) && defined(HTTP)
          else if (*kwrd == 'H')
-            cgi = 'h';
-#endif
+            cgi = 'H';
          else if (*kwrd == 'h')
          {
             printf ("\nUsage: %s [options]\n\nOptions:\n", prog);
 #ifndef GLK
-            printf ("    -j                  invert default wrap/justify setting\n");
-            printf ("    -b                  invert default setting for blank lines around prompt\n");
+            printf ("    -j                  invert game default setting for right-justifying text\n");
+            printf ("    -b                  invert game default setting for blank lines around prompt\n");
             printf ("    -s <W>x<H>[-<M>]    set screen size and margin\n");
 #ifndef READLINE
             printf ("    -o [<baudrate>]     set output speed for authentic experience\n");
 #endif
-            printf ("    -p                  invert default setting for pause before exiting\n");
+            printf ("    -p                  invert game default setting for pausing before exit\n");
 #endif /* GLK */
 #ifdef USEDB
             printf ("    -d <dbsdir>         specify dbs directory\n");
@@ -5023,15 +5078,37 @@ char **argv;
          }         
       }
 
+   if (cgi == 'H' || cgi == 'h')
+   {
+#ifdef AJAXTEST
+      char gname [64];
+      char *cptr = strrchr (playpath, '/');
+      if (cptr == NULL)
+      {
+         strcpy (gname, playpath);
+         strcpy (playpath, "./");
+         cptr = playpath + 2;
+      }
+      else
+      {
+         cptr++;
+         strcpy (gname, cptr);
+      }
+      strcpy (cptr, "lib/play");
+      execl (playpath, gname, gname, NULL);
+#endif /* AJAXTEST */
+      compress = 0;
+      justify = 0;
+      end_pause = (cgi == 'h');
+   }
+
 #ifdef READLINE
    lbuf = (char *)malloc(2 * Maxlen + 1);
    lbp = lbuf;
 #endif
 #ifdef SLOW
-#ifdef ADVCONTEXT
    if (cgi)
       cps = 0;
-#endif /* ADVCONTEXT */
    if (cps)
 #  if defined(DOS) || defined(_WIN32)
       cps = 1000/cps;
@@ -5039,13 +5116,11 @@ char **argv;
       cps = 1000000/cps;
 #  endif
 #endif /* SLOW */
-#ifdef ADVCONTEXT
    if (cgi) 
    {
       compress = 1;
       Margin = 0;
    }
-#endif
    if (mainseed == 0)
       (void) time ((time_t *) &mainseed);
    rseed = mainseed %= 32768L;
@@ -5068,10 +5143,29 @@ char **argv;
 #endif
    value [THERE] = value [HERE] = FLOC;
 
-#ifdef ADVCONTEXT
+  if (cgi == 'H')
+   {
+      cgi = 'h';
+      if (! dump_name || ! *dump_name)
+         special(999, &value [0]);
+      if (value[0] == 999)
+      {
+         FILE *adl;
+         char name [64];
+         int c;
+         printf ("<h3>Restoring game in progress...</h3>\n\n");
+         sprintf (name, "%s.adl", CGINAME);
+         if ((adl = fopen (name, "r")) != NULL)
+         while ((c = fgetc(adl)) != EOF)
+            outchar (c);
+         fclose (adl);
+         goto run_it;
+      }
+   }
+
    if (cgi == 'x' && dump_name && *dump_name)
    {
-      cgi_name = dump_name;
+      cgi_name = CGINAME;
       special (997, &value [0]);
       cgi_name = ".C.adv";
    }
@@ -5091,28 +5185,14 @@ char **argv;
       }
       else     
       {
+         tindex = 0;
+         tp [0] = NULL;
          if (setjmp (loop_back) == 0)
             INIT_PROC ();
       }
    }
-#else
-   if (dump_name && *dump_name)
-   {
-      INIT_PROC ();
-      value [STATUS] = -1;
-      value [ARG3] = -1;
-      strncpy (arg2_word, dump_name, WORDSIZE);
-      *(arg2_word + WORDSIZE - 1) = '\0';
-   }
-   else
-   {
-      tindex = 0;
-      tp [0] = NULL;
-      if (setjmp (loop_back) == 0)
-         INIT_PROC ();
-   }
-#endif /* ADVCONTEXT */
 
+run_it:
 #ifdef UNDO
    if (undo_def == -2)
       bitmod ('s', UNDO_STAT, UNDO_NONE);
@@ -5129,9 +5209,20 @@ char **argv;
 
    if (quitting) 
    {
+#ifdef QT
+      close_files ();
+      exit (0);
+#else
+      if (cgi == 'h')
+      {
+         outchar (0177);
+         zap_cgi_dump ();
+         getinput (NULL, 0);   /* This call won't return */
+      }
+      else 
       if (end_pause)
       {
-         PRINTF ("(To exit, press ENTER)");
+          PRINTF ("(To exit, press ENTER)");
 #ifdef GLK
          outbuf (1);
 #else         
@@ -5150,8 +5241,11 @@ char **argv;
 #ifdef GLK
       glk_exit ();
 #else
+      if (cgi)
+         zap_cgi_dump ();
       return (255);
 #endif
+#endif /* QT */
    }
    while (1)
    {
@@ -5503,8 +5597,15 @@ void finita ()
    (void) printf ("(Locate ratio %ld%%)\n", 
       (((1000 * locate_faults) / locate_demands) + 5) / 10);
 #endif /* LOC_STATS */
+#ifdef QT
+   putchar(1);
+   putchar('q');
+   outbuf(1);
+   exit (0);
+#else
    quitting = 1;
    longjmp (loop_back, 1);
+#endif /* QT */
 }
 
 /*===========================================================*/
@@ -5846,11 +5947,7 @@ char *type;
 #endif
 {
    if (strcmp(type, "cgi") == 0)
-#ifdef ADVCONTEXT
       return (cgi);
-#else
-      return (0);
-#endif
    if (strcmp(type, "doall") == 0)
       return (value_all);
       
@@ -6119,6 +6216,8 @@ int procno;
 
 /*===========================================================*/
 
+#if STYLE >= 11
+
 #ifdef __STDC__
 int typed (char *string)
 #else
@@ -6128,5 +6227,6 @@ char *string;
 {
    return (strcmp(orig1, string) == 0 || strcmp(orig2, string) == 0);
 }
+#endif /* STYLE */
 
 /*************************************************************/
