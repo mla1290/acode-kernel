@@ -1,5 +1,6 @@
 /* adv01.c: A-code kernel - copyleft Mike Arnautov 1990-2009.
  *
+ * 21 Jul 09   MLA             Allow for GNU automake builds.
  * 13 Feb 09   MLA             Don't need list_saved for styles < 11.
  * 24 May 07   Stuart Munro    Added check for _MSC_EXTENSIONS.
  *                             Also define __STDC__ explicitly as 1.
@@ -10,7 +11,18 @@
 #  define __STDC__ 1
 #endif
 
-#include <stdio.h>
+#if defined(HAVE_CONFIG_H)
+#  include "config.h"
+#  if defined (HAVE_STRING_H)
+#     include <string.h>
+#  else /* ! HAVE_STRING_H */
+#     if defined(HAVE_STRINGS_H)
+#        include <strings.h>
+#     endif /* HAVE_STRINGS_H */
+#  endif /* HAVE_STRING_H */
+#else /* ! HAVE_CONFIG_H */
+#  include <stdio.h>
+#endif /* HAVE_CONFIG_H */
 #include <string.h>
 
 #ifdef HTTP

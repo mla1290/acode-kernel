@@ -1,7 +1,14 @@
 /* adv00.c: A-code kernel - copyleft Mike Arnautov 1990-2009.
  */
-#define KERNEL_VERSION "12.17, MLA - 12 Jul 2009"
+#define KERNEL_VERSION "12.20, 24 Aug 2009"
 /*
+ * 24 Aug 09   MLA        Don't count 'H' mode as being a cgi mode.
+ * 31 Jul 09   MLA        Create_db() now exits after constructing the database.
+ * 21 Jul 09   MLA        Ditched data_file, now using try_db() and DBNAME.
+ * 20 Jul 09   MLA        Added HAVE_CONFIG_H check for GNU automake tools.
+ * 15 Jul 09   MLA        bug: Fixed gcc -Wall --pedantic warnings.
+ * 13 Jul 09   MLA        Bug: Fixed .adl file handling.
+ *                        Allowed HTTP mode in all styles!
  * 31 Mar 09   MLA        Added last output auto-restore in HTTP mode.
  * 22 Mar 09   MLA        Added auto-restore in HTTP mode.
  * 07 Mar 09   MLA        Added auto-save in HTTP mode.
@@ -274,36 +281,55 @@
 
 #ifdef PRELOADED
 #  undef PRELOADED
+#  if defined(MEMORY)
+#     undef MEMORY
+#  endif
+#  if defined(SWAP)
+#     undef SWAP
+#  endif
+#  if defined(FILE)
+#     undef FILE
+#  endif
+#  if defined(DBSTATUS)
+#     undef DBSTATUS
+#  endif
+#  define DBSTATUS 0
 #endif /* PRELOADED */
 
 #ifdef MEMORY
-#  ifdef DBSTATUS
+#  undef MEMORY
+#  if defined(SWAP)
+#     undef SWAP
+#  endif
+#  if defined(FILE)
+#     undef FILE
+#  endif
+#  if defined(DBSTATUS)
 #     undef DBSTATUS
 #  endif
+#  define DBSTATUS 1
 #endif /* MEMORY */
+
+#if defined(SWAP)
+#  if !(SWAP >= 16 && SWAP <= 128)
+#     undef SWAP
+#  endif
+#  if defined(FILE)
+#     undef FILE
+#  endif
+#  if defined(DBSTATUS)
+#     undef DBSTATUS
+#  endif
+#  define DBSTATUS 2
+#endif /* SWAP */
 
 #ifdef FILE
 #  undef FILE
-#  define READFILE
-#  ifdef SWAP
-#     undef SWAP
-#  endif
-#  ifdef MEMORY
-#     undef MEMORY
-#  endif
-#  ifdef DBSTATUS
+#  if defined(DBSTATUS)
 #     undef DBSTATUS
 #  endif
+#  define DBSTATUS 3
 #endif /* FILE */
-
-#ifdef SWAP
-#  ifdef MEMORY
-#     undef MEMORY
-#  endif
-#  ifdef DBSTATUS
-#     undef DBSTATUS
-#  endif
-#endif /* SWAP */
 
 #ifdef DBSTATUS
 #  if DBSTATUS == 0
@@ -312,7 +338,7 @@
 #  if DBSTATUS == 1
 #     define MEMORY
 #  endif
-#  if DBSTATUS == 2
+#  if DBSTATUS == 2 && !defined(SWAP)
 #     define SWAP 32
 #  endif
 #  if DBSTATUS == 3
@@ -335,25 +361,58 @@
 #  define USEDB
 #endif
 
-#include "adv0.h"
-
 #include <stdio.h>
 #include <time.h>
 #include <ctype.h>
-#include <stdlib.h>
 #include <stdarg.h>
-#include <string.h>
 #include <errno.h>
-
-#if defined(NEED_UNISTD)
-#  include <unistd.h>
-#else
-#  ifdef _WIN32
-#     define unlink _unlink
+#if defined(HAVE_CONFIG_H)
+#  include "config.h"
+#  if defined (HAVE_STRING_H)
+#     include <string.h>
+#  else /* ! HAVE_STRING_H */
+#     if defined(HAVE_STRINGS_H)
+#        include <strings.h>
+#     endif /* HAVE_STRINGS_H */
+#  endif /* HAVE_STRING_H */
+#  if defined(HAVE_STDLIB_H)
+#     include <stdlib.h>
+#  endif /* HAVE_STDLIB_H */
+#  if defined (HAVE_SYS_STAT_H)
+#     include <sys/stat.h>
+#  endif /* HAVE_SYS_STAT_H */
+#  if defined (HAVE_SYS_TYPES_H)
+#     include <sys/types.h>
+#  endif /* HAVE_SYS_TYPES_H */
+#  if defined(HAVE_UNISTD_H)
+#     include <unistd.h>
+#  else /* ! HAVE_UNISTD_H */
+#     ifdef _WIN32
+#        define unlink _unlink
+#     else /* ! _WIN32 */
+         int unlink(char *);
+#     endif /* _WIN32 */
+#  endif /* HAVE_UNISTD_H */
+#else /* ! HAVE_CONFIG_H */
+#  include <string.h>
+#  include <stdlib.h>
+#  if defined(HAVE_UNISTD_H)
+#     include <unistd.h>
 #  else
-      int unlink(char *);
+#     ifdef _WIN32
+#        define unlink _unlink
+#     else
+         int unlink(char *);
+#     endif
 #  endif
-#endif
+#  ifdef vms
+#     define unlink delete
+#     include <time.h>
+#  else /* not vms */
+#     include <sys/types.h>
+#     include <sys/stat.h>
+#  endif /* vms */
+#endif /* HAVE_CONFIG_H */
 
 #if defined(unix) || defined(__CYGWIN__) || defined(__MACH__)
 #  define SEP '/'
@@ -403,12 +462,19 @@
       extern int list_saved();
 #  endif
 #endif
+
+#if defined(HAVE_LIBNCURSES) && defined(HAVE_LIBREADLINE)
+#  define READLINE
+#endif /* HAVE_LIBNCURSES && HAVE_LIBREADLINE */
+
 #ifdef READLINE
-#include <readline/readline.h>
-#include <readline/history.h>
+#include "readline/readline.h"
+#include "readline/history.h"
 char *lbp;
 char *lbuf;
 #endif
+
+#include "adv0.h"
 
 FILE *text_file;
 FILE *gv_file;
@@ -463,15 +529,18 @@ char *dump_name = NULL;
 #endif
 
 #ifdef GLK
-#  define putchar(X) glk_put_char(X)
+#  define ACDCHAR(X) glk_put_char(X)
 #else
 #  ifdef READLINE
-#     define putchar(X) *lbp++=X;if (*(lbp-1)=='\n')\
-              {*lbp='\0';printf(lbuf);lbp=lbuf;}
+#     define ACDCHAR(X) {if (cgi || cps) putchar(X); else\
+         {*lbp++=X;if (*(lbp-1)=='\n')\
+         {*lbp='\0';printf(lbuf);lbp=lbuf;}}}
+#  else
+#     define ACDCHAR(X) putchar(X)
 #  endif
 #endif
 
-#define PUTCHAR(X)   putchar(X);  if (log_file) (void)fputc(X,log_file)
+#define PUTCHAR(X)   ACDCHAR(X); if (log_file) fputc(X,log_file)
 
 /* The below text for BLOCK_END is a *horrible* fudge-around. The problem
  * is that BLOCK_END may get placed beyond the end of the appropriate
@@ -480,18 +549,17 @@ char *dump_name = NULL;
  */
 #ifdef BLOCK_END
 #define PUTCHARA(X)  if (*X != BLOCK_END && *X != IGNORE_EOL) { \
-                     if (log_file) (void)fputc(*X,log_file); \
-                     putchar(*X++);} else X++
+                     if (log_file) fputc(*X,log_file); \
+                     ACDCHAR(*X++);} else X++
 #else
 #define PUTCHARA(X)  if (*X != IGNORE_EOL) { \
-                     if (log_file) (void)fputc(*X,log_file); \
-                     putchar(*X++);} else X++
+                     if (log_file) fputc(*X,log_file); \
+                     ACDCHAR(*X++);} else X++
 #endif /* BLOCK_END */
 
 void outbuf (int);
 int value_all;
 jmp_buf loop_back;
-char data_file [128];
 #ifdef USEDB
    char *dbs_dir = NULL;
 #endif /* USEDB */
@@ -594,12 +662,12 @@ char *cgi_name = CGINAME;
 #endif /* AGAIN */
 
 #ifdef MEMORY
-   char text [TEXT_BYTES];
+   unsigned char text [TEXT_BYTES];
 #endif /* MEMORY */
 
 #ifdef SWAP
 #  define TEXT_CHUNK 1024
-   char text [SWAP * TEXT_CHUNK];
+   unsigned char text [SWAP * TEXT_CHUNK];
    int chunk_start [SWAP];
    int chunk_end [SWAP];
    int chunk_age [SWAP];
@@ -649,14 +717,14 @@ int location_all;
 #if !defined(NO_SLOW) && !defined(SLOW)
 #  define SLOW
 #endif
-#if defined(READLINE) || defined(GLK)
+#if defined(QT) || defined(GLK)
 #  ifdef SLOW
 #     undef SLOW
 #  endif
 #endif
 
+int cps = 0;
 #ifdef SLOW
-   int cps = 0;
 #  if (defined(DOS) || defined(_WIN32)) && !defined(DJGPP)
 #     ifdef __STDC__
          extern void my_usleep (int);
@@ -665,7 +733,7 @@ int location_all;
 #     endif
 #     define usleep(X) my_usleep(X)
 #  else
-#     if ! defined(NEED_UNISTD)
+#     if ! defined(HAVE_UNISTD_H)
          void usleep(int);
 #     endif
 #  endif
@@ -682,9 +750,9 @@ int eol_count = 0;
 char *lp;
 
 #define PRINTF(X)    { char *ptr = X; while (*ptr) outchar(*ptr++); }
-#define PRINTF1(X)   printf(X); if (log_file) (void)fprintf(log_file,X);
-#define PRINTF2(X,Y) printf(X,Y); if (log_file) (void)fprintf(log_file,X,Y);
-#define LOGERROR(X)  if (log_file) (void)fprintf(log_file,"ERROR: %d",X)
+#define PRINTF1(X)   printf(X); if (log_file) fprintf(log_file,X);
+#define PRINTF2(X,Y) printf(X,Y); if (log_file) fprintf(log_file,X,Y);
+#define LOGERROR(X)  if (log_file) fprintf(log_file,"ERROR: %d",X)
 #define CHKSUM(X,Y)  for (cptr=(char *)X,cnt=1; \
                      (unsigned int)cnt<=(unsigned int)Y;cnt++,cptr++) \
                      {chksum+=(*cptr+cnt)*(((int)(*cptr)+cnt)<<4)+Y; \
@@ -717,7 +785,7 @@ void glkgets (buf, buflen)
          case evtype_LineInput:
             gotline = 1;
 /* Glk doesn't put a '\n' before the terminating null! */               
-            (void) strcat(buf,"\n");
+            strcat(buf,"\n");
          default:
             break;
       }
@@ -1144,7 +1212,7 @@ int char_addr;
 #endif /* MEMORY || PRELOADED */
 #ifdef SWAP
    int index;
-   char *buf_ptr;
+   unsigned char *buf_ptr;
    int oldest_chunk;
    int new_addr;
    void file_oops ();
@@ -1177,7 +1245,7 @@ readit:
    chunk_end [index] = fread (buf_ptr, sizeof (char), 
       TEXT_CHUNK, text_file) + new_addr;
 #ifdef LOC_STATS
-   (void) printf ("Wanted %ld.  Buffer %d: from %ldK.\n",
+   printf ("Wanted %ld.  Buffer %d: from %ldK.\n",
       char_addr, index, new_addr / TEXT_CHUNK);
 #endif /* LOC_STATS */
    if (chunk_start [index] > chunk_end [index])
@@ -1239,8 +1307,8 @@ void file_oops ()
 {
    PRINTF ("\n \nUnable to retrieve required data! Sorry...\n");
    outbuf (1);
-   (void) fclose (text_file);
-   if (log_file) (void) fclose (log_file);
+   fclose (text_file);
+   if (log_file) fclose (log_file);
    exit (0);
 }
 #endif /* SWAP || READFILE */
@@ -1312,11 +1380,16 @@ int clear;
    {
       need = Margin;
       while (need--)
+      {
 #ifdef READLINE
-         PRINTF1 (" ");
-#else
-         putchar (' ');
+         if (cgi || cps)
+            {ACDCHAR(' ');}
+         else
+            {PRINTF1 (" ")}
+#else /* ! READLINE */
+         ACDCHAR(' ');
 #endif /* READLINE */
+      }
       PRINTF1 ("[More?] ");
       fgets (reply, sizeof (reply) - 1, com_file ? com_file : stdin);
       if (log_file)
@@ -1335,7 +1408,7 @@ int clear;
 #endif /* GLK */
 }
 
-#ifdef BLOCK_END
+#if defined(BLOCK_END) || STYLE < 10
 
 /*===========================================================*/
 
@@ -1347,9 +1420,12 @@ char *str;
 #endif
 {
    while (*str)
-      putchar(*str++);
+      ACDCHAR(*str++);
    return;
 }
+#endif
+
+#ifdef BLOCK_END
 
 /*===========================================================*/
 
@@ -1372,15 +1448,15 @@ char *tptr;
    char *aptr = tptr;
    
 #ifdef QT
-   putchar(1);
-   putchar (type == BLOCK_START ? '=' : '+');
+   ACDCHAR(1);
+   ACDCHAR(type == BLOCK_START ? '=' : '+');
 #else /* !QT */
    if (cgi)
    {
       printf ("<center>");
       if (type == BLOCK_START)
          printf ("<table><tr><td>");
-      putchar ('\n');
+      ACDCHAR('\n');
    }
 #endif /* QT */
    while (*aptr && *aptr != BLOCK_END)
@@ -1448,7 +1524,7 @@ char *tptr;
       {
          if (type == BLOCK_START && *tptr == ' ')
          {
-            if (log_file) (void)fputc(*tptr, log_file);
+            if (log_file) fputc(*tptr, log_file);
             if (cgi)
             {
                tptr++;
@@ -1459,11 +1535,11 @@ char *tptr;
             else
             {
 #ifdef QT
-               putchar(1);
-               putchar('_');
+               ACDCHAR(1);
+               ACDCHAR('_');
                tptr++;
 #else /* !QT */
-               putchar(*tptr++);
+               ACDCHAR(*tptr++);
 #endif /* QT */
             }
          }
@@ -1489,7 +1565,7 @@ char *tptr;
    glk_set_style (style_Normal);
 #endif
 #ifdef QT
-   putchar('\002');
+   ACDCHAR('\002');
 #endif /* QT */
    if (*tptr)
       tptr++;
@@ -1610,25 +1686,25 @@ int terminate;
 #ifdef NQT
       if (text_char == BLOCK_START || text_char == CENTRE_START)
       {
-         putchar(1);
-         putchar(text_char == BLOCK_START ? '=' : '+');
+         ACDCHAR(1);
+         ACDCHAR(text_char == BLOCK_START ? '=' : '+');
       }
 #endif /* NQT */
       else if (text_char == BLOCK_END)
       {
-         putchar(2);
+         ACDCHAR(2);
       }
       else if (text_char == NBSP)
       {
-         putchar(1);
-         putchar('_');
+         ACDCHAR(1);
+         ACDCHAR('_');
       }
       else
       {
-         putchar(text_char);
+         ACDCHAR(text_char);
       }
    }
-   putchar(0);
+   ACDCHAR(0);
 #else /* !QT */
 
 /* Older style A-code versions signalled text fragments by prepending the
@@ -1650,17 +1726,35 @@ int terminate;
          continue;
       }
          
+      if (text_char == ' ' && line_len == 0)
+      {
+         if (wrapped)
+         {
+            
 /* If the accumulated line length is zero because we have wrapped,
  * skip all leading blanks. No need to shift anything -- just make lptr
  * and tptr point beyond.
  */
-      if (text_char == ' ' && wrapped && line_len == 0)
-      {
-         wrapped = 0;      /* Unset the "just wrapped" flag */
-         while ((text_char = *tptr++) == ' '); 
-         lptr = --tptr;
-         lastchar = ' ';
-         continue;
+            wrapped = 0;      /* Unset the "just wrapped" flag */
+            while ((text_char = *tptr++) == ' '); 
+            lptr = --tptr;
+            lastchar = ' ';
+            continue;
+         }
+#if STYLE < 10
+         else if (cgi)
+         {
+            while ((text_char = *tptr++) == ' ')
+            {
+               outstr("&nbsp;");
+               if (*tptr == ' ')
+                  outstr("&nbsp;");
+            }
+            lptr = --tptr;
+            lastchar = ' ';
+            continue;
+	 }
+#endif /* STYLE */
       }
 
 /* All block handling is done in the doblock routine, which also manipulates
@@ -1701,7 +1795,7 @@ int terminate;
          {
 #ifdef READLINE
             lptr = outline (lptr, line_len, 0, 0, terminate); /* Points at next line */
-#else
+#else /* ! READLINE */
             lptr = outline (lptr, line_len, 0, 0); /* Points at next line */
 #endif /* READLINE */
             line_len = 0;
@@ -1736,7 +1830,7 @@ int terminate;
                tptr++;
 #ifdef READLINE
             lptr = outline (lptr, break_point, break_count, 1, terminate);
-#else
+#else /* ! READLINE */
             lptr = outline (lptr, break_point, break_count, 1);
 #endif /* READLINE */
             break_point = 0;
@@ -1757,14 +1851,14 @@ int terminate;
          if (break_count < 0)
 #ifdef READLINE
             lptr = outline (lptr, Maxlen, 0, 0, terminate);
-#else
+#else /* ! READLINE */
             lptr = outline (lptr, Maxlen, 0, 0);
 #endif /* READLINE */
          else
          {
 #ifdef READLINE
             lptr = outline (lptr, break_point, break_count, 1, terminate);
-#else
+#else /* ! READLINE */
             lptr = outline (lptr, break_point, break_count, 1);
 #endif /* READLINE */
             PUTCHAR ('\n');
@@ -1780,9 +1874,9 @@ int terminate;
    }
    if (line_len > 0)
 #ifdef READLINE
-      (void) outline (lptr, line_len, 0, 0, terminate);
-#else
-      (void) outline (lptr, line_len, 0, 0);
+      outline (lptr, line_len, 0, 0, terminate);
+#else /* ! READLINE */
+      outline (lptr, line_len, 0, 0);
 #endif /* READLINE */
 
 #endif /* !QT */
@@ -1877,7 +1971,9 @@ int qualifier;
    int textqual;
    int swqual;
    int given_qualifier;
+#ifdef NEST_TEXT
    int given_key = key;
+#endif /* NEST_TEXT */
    char auxbuf [WORDSIZE];
    int auxa;
    int ea;
@@ -1918,14 +2014,14 @@ int qualifier;
       int tmp = value [what];
 #if STYLE >= 11
       if ((what != ARG1 && what != ARG2 && what != ARG3) ||
-         tmp != BADWORD && tmp != AMBIGWORD && tmp != AMBIGTYPO &&
-         tmp != SCENEWORD && tmp != BADSYNTAX)
+         (tmp != BADWORD && tmp != AMBIGWORD && tmp != AMBIGTYPO &&
+         tmp != SCENEWORD && tmp != BADSYNTAX))
 #else
 #  if STYLE == 1
       if ((what != ARG1 && what != ARG2 && what != ARG3) || tmp != BADWORD)
 #  else
       if ((what != ARG1 && what != ARG2 && what != ARG3) ||
-         tmp != BADWORD && tmp != AMBIGWORD)
+         (tmp != BADWORD && tmp != AMBIGWORD))
 #  endif
 #endif /* STYLE */
             what = tmp;
@@ -2110,7 +2206,7 @@ int qualifier;
          if (value_flag)
 #endif
          {
-            (void) sprintf (auxbuf, "%d", qualifier);
+            sprintf (auxbuf, "%d", qualifier);
             cp = auxbuf - 1;
             while (*(++cp) != '\0')
                outchar (*cp);
@@ -2178,10 +2274,10 @@ shutup:
 /*===========================================================*/
 
 #ifdef __STDC__
-void outchar (int text_char)
+void outchar (char text_char)
 #else
 void outchar (text_char)
-int text_char;
+char text_char;
 #endif
 {
    if (text_len == text_buf_len - 8)
@@ -2196,11 +2292,15 @@ int text_char;
    }
 
 #ifdef TAG_START
+   
    if (text_char == TAG_START)
    {
       html_tag = 1;
       if (cgi)
+      {
          *lptr++ = '<';
+         text_len++;
+      }
       return;
    }
    else if (html_tag)
@@ -2209,12 +2309,16 @@ int text_char;
       {
          html_tag = 0;
          if (cgi)
+         {
+            text_len++;
             *lptr++ = '>';
+         }
          return;
       }
    }
    if (html_tag && cgi == 0)
       return;
+
 #endif /* TAG */
 
    if (text_char == '\n')
@@ -2237,6 +2341,7 @@ int text_char;
       {
          strcpy(lptr, "&nbsp;");
          lptr += 6;
+         text_len += 6;
          return;
       }
       else
@@ -2412,7 +2517,21 @@ int insize;
       sprintf (name, "%s.adl", CGINAME);
       if ((adl = fopen(name, "w")) != NULL)
       {
+#if STYLE >= 10
+         char *dptr = text_buf;
+         while (dptr - text_buf < text_len)
+         {
+            if (*dptr == '<')
+               fputc (TAG_START, adl);
+            else if (*dptr == '>')
+               fputc (TAG_END, adl);
+            else
+               fputc (*dptr, adl);
+            dptr++;
+         }
+#else
          fwrite(text_buf, 1, text_len, adl);
+#endif /* STYLE */
          fclose (adl);
       }
    }
@@ -2429,7 +2548,7 @@ int insize;
       outbuf (0);
    if (cgi == 'h')
    {
-      putchar (0176);
+      ACDCHAR(0176);
       fflush (stdout);
       if (!inbuf)
       {
@@ -2471,12 +2590,17 @@ int insize;
             fclose (com_file);
             com_file = NULL;
 #ifdef READLINE
-            rdl = readline (lbuf);
-            memcpy (inbuf, rdl, insize);
-            add_history (rdl);
-            free (rdl);
-            *(inbuf + insize - 1) = 0;
-#else /* not READLINE */
+            if (cgi || cps)
+               fgets (inbuf, insize, stdin);
+            else
+            {
+               rdl = readline (lbuf);
+               memcpy (inbuf, rdl, insize);
+               add_history (rdl);
+               free (rdl);
+               *(inbuf + insize - 1) = 0;
+            }
+#else /* ! READLINE */
 #  ifdef GLK
             glkgets (inbuf, insize);
 #  else
@@ -2502,13 +2626,18 @@ int insize;
    else if (com_file == NULL)
 #ifdef READLINE
    {
-      rdl = readline (lbuf);
-      memcpy (inbuf, rdl, insize);
-      add_history (rdl);
-      free (rdl);
-      *(inbuf + insize - 1) = 0;
+      if (cgi || cps)
+         fgets (inbuf, insize, stdin);
+      else
+      {
+         rdl = readline (lbuf);
+         memcpy (inbuf, rdl, insize);
+         add_history (rdl);
+         free (rdl);
+         *(inbuf + insize - 1) = 0;
+      }
    }
-#else /* not READLINE */
+#else /* ! READLINE */
 #  ifdef GLK
       glkgets (inbuf, insize - 1);
 #  else
@@ -2563,7 +2692,7 @@ char *aptr;
 #ifdef __STDC__
 #ifdef READLINE
 char *outline (char *aptr, int char_count, int break_count, int fill, int terminate)
-#else
+#else /* ! READLINE */
 char *outline (char *aptr, int char_count, int break_count, int fill)
 #endif /* READLINE */
 #else
@@ -2574,7 +2703,7 @@ int break_count;
 int char_count;
 int fill;
 int terminate;
-#else
+#else /* ! READLINE */
 char *outline (aptr, char_count, break_count, fill)
 char *aptr;
 int break_count;
@@ -2663,10 +2792,13 @@ int fill;
       }
    }
 #ifdef READLINE
-   *lbp = '\0';
-   if (*aptr || terminate)
-      printf (lbuf);
-   lbp = lbuf;      
+   if (!cgi && !cps)
+   {
+      *lbp = '\0';
+      if (*aptr || terminate)
+         printf (lbuf);
+      lbp = lbuf;
+   }
 #endif
 #ifdef SLOW
    fflush (stdout);
@@ -2709,14 +2841,14 @@ int refno;
    
    if (textadr[refno])
    {
-      (void) advcpy (which_arg == 1 ? arg1_word : arg2_word, textadr [refno]);
+      advcpy (which_arg == 1 ? arg1_word : arg2_word, textadr [refno]);
       return;
    }
    for (word = 0; word < VOCAB_SIZE; word++)
    {
       if (voc_refno [word] == refno)
       {
-         (void) advcpy (which_arg == 1 ? arg1_word : arg2_word, 
+         advcpy (which_arg == 1 ? arg1_word : arg2_word, 
             voc_word [word]);
          return;
       }
@@ -2738,7 +2870,9 @@ int type;
 {
    int index;
    int fits;
+#ifdef ALL
    int first;
+#endif /* ALL */
 
    if (key == 0 && value [STATUS] != 1) return;
    fits = -1;
@@ -2785,7 +2919,7 @@ int type;
    if (fits >= 0)
    {
       value [ARG2] = fits;
-      (void) advcpy (arg2_word, textadr [fits]);
+      advcpy (arg2_word, textadr [fits]);
 #ifdef DWARVEN
       if (value [DWARVEN] || extra_dwarvish)
       {
@@ -2839,7 +2973,7 @@ int olen;
 {
    char save_char;
 
-   (void) strncpy (orig, tp [tindex], WORDSIZE);
+   strncpy (orig, tp [tindex], WORDSIZE);
 #ifdef DWARVEN
    if (value [DWARVEN]) shift_down (orig, WORDSIZE);
 #endif
@@ -3152,13 +3286,13 @@ done:
    
    if (*refno <= BADWORD)
    {
-      (void) strncpy (wp, tp [tindex], WORDSIZE);
+      strncpy (wp, tp [tindex], WORDSIZE);
       if (which_arg <= 2 && strlen (tp [tindex]) > 16)
-         (void) strcpy (long_word, tp[tindex]);
+         strcpy (long_word, tp[tindex]);
    }
    else
    {
-      (void) advcpy (wp, *tadr);
+      advcpy (wp, *tadr);
 #ifdef DWARVEN
       if (value [DWARVEN] || extra_dwarvish)
       {
@@ -3326,7 +3460,7 @@ int textref;
    if (bitest ((STATUS), (PLSCLARIFY)))
    {
       orphan = arg1;
-      (void) strncpy (orphan_word, arg1_word, 20);
+      strncpy (orphan_word, arg1_word, 20);
    }
 #ifdef ADVCONTEXT
    else if (cgi >= 'h' && *orphan_word && orphan == 0)
@@ -3363,7 +3497,7 @@ restart:
    if (tp [tindex] == NULL)
    {
       if (raw_comline [0] != '\0' && raw_comline [0] != '\n')
-         (void) strncpy (old_comline, raw_comline, 160);
+         strncpy (old_comline, raw_comline, 160);
       comline [0] = '\0';
       while (comline [0] == '\0' || comline [0] == '\n')
       {
@@ -3371,21 +3505,21 @@ restart:
          done_again = 0;
 #endif /* AGAIN */
 #ifdef LOC_STATS
-         (void) printf ("\n(Locates: demanded %ld (+%ld), faults %ld (+%ld))",
+         printf ("\n(Locates: demanded %ld (+%ld), faults %ld (+%ld))",
             locate_demands, locate_demands - old_demands, 
             locate_faults, locate_faults - old_faults);
          old_demands = locate_demands;
          old_faults = locate_faults;
 #endif /* LOC_STATS */
-         (void) scrchk (1);
+         scrchk (1);
          if (textref)
-            (void) say (0, textref, 0);
+            say (0, textref, 0);
          if (! lptr) lptr = text_buf;
          getinput (comline, 160);
 #ifdef vms
-         (void) putchar ('\n');        /* VMS... sigh... */
+         ACDCHAR('\n');         /* VMS... sigh... */
 #endif /* vms */
-         (void) strncpy (raw_comline, comline, 160);
+         strncpy (raw_comline, comline, 160);
 #ifdef ADVCONTEXT
          if (value [ADVCONTEXT] && (*comline == '\n' || *comline == '\0'))
          {
@@ -3396,7 +3530,7 @@ restart:
          }
 #endif /* ADVCONTEXT */
       }
-      (void) scrchk (1);
+      scrchk (1);
       parse ();
    }
 
@@ -3491,7 +3625,7 @@ got_command:
       {
          value [STATUS] = 2;
          value [ARG2] = orphan;
-         (void) strncpy (arg2_word, orphan_word, 20);
+         strncpy (arg2_word, orphan_word, 20);
       }
       orphan = 0;
       *orphan_word = '\0';
@@ -3517,8 +3651,8 @@ got_command:
       {
          if (*old_comline == '\n')
             goto restart;
-         (void) strncpy (comline, old_comline, 160);
-         (void) strncpy (raw_comline, old_comline, 160);
+         strncpy (comline, old_comline, 160);
+         strncpy (raw_comline, old_comline, 160);
          parse ();
       }
       goto get_arg1;
@@ -3560,9 +3694,9 @@ got_command:
       temp_val = value [ARG1];
       value [ARG1] = value [ARG2];
       value [ARG2] = temp_val;
-      (void) strncpy (temp_word, arg1_word, 20);
-      (void) strncpy (arg1_word, arg2_word, 20);
-      (void) strncpy (arg2_word, temp_word, 20);
+      strncpy (temp_word, arg1_word, 20);
+      strncpy (arg1_word, arg2_word, 20);
+      strncpy (arg2_word, temp_word, 20);
    }
    arg1_word [19] = '\0';
    arg2_word [19] = '\0';
@@ -3597,7 +3731,7 @@ got_command:
                   }
                   else
                   {
-                     (void) advcpy (arg3_word, tadr);
+                     advcpy (arg3_word, tadr);
                      except [except_count++] = refno;
                   }
  	       }
@@ -3665,12 +3799,12 @@ int textref;
    if (textref >= 0)
       say (0, textref, 0);
    else
-      (void) scrchk (1);
+      scrchk (1);
 
 try_again:
    query_flag = 1;
    getinput (reply, 10);
-   (void) scrchk (1);
+   scrchk (1);
 #ifdef DWARVEN
    if (value [DWARVEN])  shift_down (reply, 10);
 #endif /* DWARVEN */
@@ -3702,7 +3836,7 @@ char *save_name;
 {
    char *cptr;                 /* Discardable pointer to file_name */
 
-   (void) strcpy (save_name, file_name);
+   strcpy (save_name, file_name);
    cptr = save_name;
    while (*cptr)
    {
@@ -3726,7 +3860,7 @@ char *save_name;
 #endif
 #endif /* MSDOS */
    if (strcmp (save_name + strlen (save_name) - 4, ".adv") != 0)
-      (void) strcat (save_name, ".adv");
+      strcat (save_name, ".adv");
    return;
 }
 
@@ -3743,7 +3877,7 @@ FILE *infile;
    int minvalg = 0;
    int majvalt = 0;
    int minvalt = 0;
-   char *gptr = GAMEID;
+   char *gptr = GAME_ID;
    char tchr = fgetc (infile);
    
    while (1)
@@ -3790,14 +3924,16 @@ int key;
  * Key 2   temporary memory save
  * Key 3   temporary memory restore
  */
+#ifdef ADVCONTEXT
    FILE *memory_file = NULL;
+#endif /* ADVCONTEXT */
    static char *image_base = NULL;   /* True memory save area */
    static char *image_temp = NULL;   /* Temp save over restore area */
    char *image_ptr;
 #ifdef ADVCONTEXT
    char *fname = (char *)(key < 2 ? ".M.adv" : ".T.adv");
-#endif
    int result = 1;
+#endif /* ADVCONTEXT */
 
    if (key < 0)
    {
@@ -3811,7 +3947,7 @@ int key;
          }
          return (result);
       }
-#endif
+#endif /* ADVCONTEXT */
       return (image_base ? 0 : 1);
    }
 
@@ -3883,7 +4019,9 @@ int *var;
    char file_name [168];
    FILE *game_file;
    int val, val1;
+#if STYLE >= 10
    int lval;
+#endif /* STYLE >= 10 */
    char tval [12];
    static int tsiz = sizeof (time_t);
    int chksum;
@@ -3908,9 +4046,9 @@ try_again:
          {
             if (*long_word && 
                strncmp (long_word, arg2_word, 16) == 0)
-                  (void) strcpy (file_name, long_word);
+                  strcpy (file_name, long_word);
             else
-               (void) strcpy (file_name, arg2_word);
+               strcpy (file_name, arg2_word);
          }
          else
 #ifdef ADVCONTEXT
@@ -3924,10 +4062,10 @@ try_again:
          if (key > 2)
          {
             strncpy (arg2_word, cgi_name, WORDSIZE - 1);
-            (void) make_name (cgi_name, save_name);
+            make_name (cgi_name, save_name);
          }
          else
-            (void) make_name (file_name, save_name);
+            make_name (file_name, save_name);
 #else
       case 999:
          if (key == 999)
@@ -3956,7 +4094,7 @@ try_again:
                {
                   PRINTF ("You have the following saved games: ")
                   if (cgi < 'x')
-                     (void) list_saved (1, NULL);
+                     list_saved (1, NULL);
                }
 #endif
                PRINTF ("\nName of saved game to restore: ");
@@ -3976,13 +4114,13 @@ try_again:
 #if STYLE >= 11
 got_name:
 #endif
-         (void) make_name (file_name, save_name);
+         make_name (file_name, save_name);
 #endif /* ADVCONTEXT */
          if ((game_file = fopen (save_name, RMODE)) != NULL)
          {
             if (key == 2 || key == 999 || key == 997) 
                goto restore_it;
-            (void) fclose (game_file);
+            fclose (game_file);
             PRINTF ("\nThere's already a game dumped under that name.\n");
 #ifdef ADVCONTEXT
             *var = 2;
@@ -4030,20 +4168,20 @@ got_name:
             *var = 1;
             return (1);
          }
-         (void) time ((time_t *) &tval[0]);
-         (void) fprintf (game_file, "%s\n", GAMEID);
+         time ((time_t *) &tval[0]);
+         fprintf (game_file, "%s\n", GAME_ID);
          val = FOBJ;
-         (void) fwrite (&val, sizeof (int), 1, game_file);
+         fwrite (&val, sizeof (int), 1, game_file);
          val = LOBJ;
-         (void) fwrite (&val, sizeof (int), 1, game_file);
+         fwrite (&val, sizeof (int), 1, game_file);
          val = LLOC;
-         (void) fwrite (&val, sizeof (int), 1, game_file);
+         fwrite (&val, sizeof (int), 1, game_file);
          val = LVERB;
-         (void) fwrite (&val, sizeof (int), 1, game_file);
+         fwrite (&val, sizeof (int), 1, game_file);
          val = LVAR;
-         (void) fwrite (&val, sizeof (int), 1, game_file);
+         fwrite (&val, sizeof (int), 1, game_file);
          val = LTEXT;
-         (void) fwrite (&val, sizeof (int), 1, game_file);
+         fwrite (&val, sizeof (int), 1, game_file);
          *value = -1;
          chksum = 0;
          CHKSUM(tval, sizeof(time_t))
@@ -4052,29 +4190,31 @@ got_name:
          CHKSUM(IMAGE + OFFSET_OBJBIT, OBJBIT_SIZE)
          CHKSUM(IMAGE + OFFSET_LOCBIT, LOCBIT_SIZE)
          CHKSUM(IMAGE + OFFSET_VARBIT, VARBIT_SIZE)
+#ifdef ADVCONTEXT
          if (cgi >= 'h' && key == 998)
          {
             CHKSUM(qwords, sizeof(qwords));
             CHKSUM(qvals, sizeof(qvals));
          }
-         (void) fwrite (&chksum, sizeof (int), 1, game_file);
-         (void) fwrite (tval, 1, sizeof(time_t), game_file);
-         (void) fwrite (IMAGE, 1, IMAGE_SIZE, game_file);
+#endif /* ADVCONTEXT */
+         fwrite (&chksum, sizeof (int), 1, game_file);
+         fwrite (tval, 1, sizeof(time_t), game_file);
+         fwrite (IMAGE, 1, IMAGE_SIZE, game_file);
 #if STYLE >=11
          if (cgi >= 'h' && key == 998)
          {
-            (void) fwrite (qwords, sizeof (char), sizeof (qwords), game_file);
-            (void) fwrite (qvals, sizeof (char), sizeof (qvals), game_file);
-            (void) fwrite (&mainseed, sizeof (int), 1, game_file);
-            (void) fwrite (word_buf, sizeof (short), *word_buf - 1, game_file);
-            (void) fwrite (old_comline, sizeof (char), sizeof (old_comline),
+            fwrite (qwords, sizeof (char), sizeof (qwords), game_file);
+            fwrite (qvals, sizeof (char), sizeof (qvals), game_file);
+            fwrite (&mainseed, sizeof (int), 1, game_file);
+            fwrite (word_buf, sizeof (short), *word_buf - 1, game_file);
+            fwrite (old_comline, sizeof (char), sizeof (old_comline),
                game_file);
-            (void) fwrite (long_word, sizeof (char), sizeof (long_word),
+            fwrite (long_word, sizeof (char), sizeof (long_word),
                game_file);
          }
 #endif
          *var = (ferror (game_file)) ? 1 : 0;
-         (void) fclose (game_file);
+         fclose (game_file);
 #ifdef UNDO
          if (value [UNDO_STAT] >= 0 && diffs && (diffs < dptr || cgi >= 'h'))
          {
@@ -4112,32 +4252,32 @@ restore_it:
             return (0);
          }
          val1 = 0;
-         (void) fread (&val, sizeof (int), 1, game_file);
+         fread (&val, sizeof (int), 1, game_file);
 #ifdef DEBUG
          printf ("FOBJ: image %3d, expected %3d\n", val, FOBJ);
 #endif /* DEBUG */
          if (val != FOBJ) val1++;
-         (void) fread (&lobj, sizeof (int), 1, game_file);
+         fread (&lobj, sizeof (int), 1, game_file);
 #ifdef DEBUG
          printf ("LOBJ: image %3d, expected %3d\n", lobj, LOBJ);
 #endif /* DEBUG */
          if (lobj > LOBJ) val1++;
-         (void) fread (&lplace, sizeof (int), 1, game_file);
+         fread (&lplace, sizeof (int), 1, game_file);
 #ifdef DEBUG
          printf ("LLOC: image %3d, expected %3d\n", lplace, LLOC);
 #endif /* DEBUG */
          if (lplace > LLOC) val1++;
-         (void) fread (&lverb, sizeof (int), 1, game_file);
+         fread (&lverb, sizeof (int), 1, game_file);
 #ifdef DEBUG
          printf ("LVERB: image %3d, expected %3d\n", lverb, LVERB);
 #endif /* DEBUG */
          if (lverb > LVERB) val1++;
-         (void) fread (&lvar, sizeof (int), 1, game_file);
+         fread (&lvar, sizeof (int), 1, game_file);
 #ifdef DEBUG
          printf ("LVAR: image %3d, expected %3d\n", lvar, LVAR);
 #endif /* DEBUG */
          if (lvar > LVAR) val1++;
-         (void) fread (&ltext, sizeof (int), 1, game_file);
+         fread (&ltext, sizeof (int), 1, game_file);
 #ifdef DEBUG
          printf ("LTEXT: image %3d, expected %3d\n", ltext, LTEXT);
 #endif /* DEBUG */
@@ -4146,7 +4286,7 @@ restore_it:
          if (val1)
          {
             *var = 2;
-            (void) fclose (game_file);
+            fclose (game_file);
             return (0);
          }
          chksav = 0;
@@ -4166,11 +4306,11 @@ restore_it:
 #ifdef DEBUG
          puts ("Reading image...");
 #endif
-         (void) fread (&chksav, sizeof (int), 1, game_file);
+         fread (&chksav, sizeof (int), 1, game_file);
 #ifdef DEBUG
          PRINTF2("CHKSAV %d\n", chksav)
 #endif
-         (void) fread (tval, 1, sizeof (tval), game_file);
+         fread (tval, 1, sizeof (tval), game_file);
          if (*((int *)(tval + 4)) == -1)
             tsiz = 4;
          else if (*((int *)(tval + 8)) == -1)
@@ -4188,36 +4328,36 @@ restore_it:
             int varbo = plabo + plabs;
             int varbs = VARSIZE * (lvar - lplace) * sizeof (short);
             int imgsiz = varbo + varbs;
-            (void) fread (scratch, 1, imgsiz, game_file);
+            fread (scratch, 1, imgsiz, game_file);
          }
 #ifdef ADVCONTEXT
          if (cgi >= 'h' && key == 999)
          {
-            (void) fread (qwords, sizeof (char), sizeof (qwords), game_file);
-            (void) fread (qvals, sizeof (char), sizeof (qvals), game_file);
-            (void) fread (&mainseed, sizeof (int), 1, game_file);
+            fread (qwords, sizeof (char), sizeof (qwords), game_file);
+            fread (qvals, sizeof (char), sizeof (qvals), game_file);
+            fread (&mainseed, sizeof (int), 1, game_file);
             if (! ferror (game_file))
             {
-               (void) fread (word_buf, sizeof (short), 2, game_file);
+               fread (word_buf, sizeof (short), 2, game_file);
                if (ferror (game_file))
                {
                   *word_buf = 3;
                   *(word_buf + 1) = 0;
                }
                else
-                  (void) fread (word_buf + 2, sizeof (short),
+                  fread (word_buf + 2, sizeof (short),
                      *word_buf - 3, game_file);
             }
             if (! ferror (game_file))
             {
-               (void) fread (old_comline, sizeof (char), sizeof (old_comline),
-                   game_file);
+               fread (old_comline, sizeof (char), sizeof (old_comline),
+                  game_file);
             }
             *long_word = '\0';
             if (! ferror (game_file))
             {
-               (void) fread (long_word, sizeof (char), sizeof (long_word),
-                   game_file);
+               fread (long_word, sizeof (char), sizeof (long_word),
+                  game_file);
             }
             clearerr (game_file);
          }
@@ -4230,7 +4370,7 @@ restore_it:
 #ifdef DEBUG
          puts ("Checking image...");
 #endif
-         (void) fclose (game_file);
+         fclose (game_file);
          chksum = 0;
          {
             int locso = ltext * sizeof (int);
@@ -4304,7 +4444,7 @@ restore_it:
                {
                   diflen = 8192 * ((len + 8191) / 8192);
                   d = (unsigned char *)malloc(diflen);
-                  (void) fread (d, 1, len, game_file);
+                  fread (d, 1, len, game_file);
                   fread (&chksav, 1, sizeof (chksav), game_file);
                   CHKSUM(d, len);
                   if (chksum == chksav)
@@ -4328,7 +4468,7 @@ restore_it:
 
       case 3:          /* Delete saved game */
 #ifdef ADVCONTEXT
-         (void) make_name (arg2_word, save_name);
+         make_name (arg2_word, save_name);
 #endif /* ADVCONTEXT */
          *var = unlink (save_name);
  if (*var)
@@ -4337,7 +4477,7 @@ restore_it:
    system ("pwd");
  }
          strcpy (save_name + strlen(save_name) - 3, "adh");
-         (void) unlink (save_name);
+         unlink (save_name);
          return (0);
       case 4:          /* Adv550 legacy - flush game cache */
       case 5:          /* Adv550 legacy - get prime time flag */
@@ -4361,7 +4501,7 @@ restore_it:
 #if STYLE < 10
          *var = saved_value;
 #else
-         (void) time ((time_t *) &lval);
+         time ((time_t *) &lval);
          *var = 1 + (lval - game_time) / 60;      /* Be generous! */
 #endif
          return (0);
@@ -4386,13 +4526,20 @@ restore_it:
          *var = (tp[tindex] == NULL);
          return (0);
 /*    case 13: */         /* Spare */
-      case 14:         /* Check for virgin game */
-         if ((*var = (gv_file = fopen ("adv.vrg", RMODE)) ? 0 : 1) == 0)
+      case 14:         /* Check persistent data */
+#if STYLE >= 11
+         if ((*var = (gv_file = fopen (PERSISTENT_DATA, RMODE)) ? 0 : 1) == 0)
             fclose (gv_file);
+#endif
          return (0);
-      case 15:         /* Note that he meditated, as he should */
-         if ((gv_file = fopen ("adv.vrg", WMODE)))
+      case 15:         /* Store persistent data */
+#if STYLE >= 11
+/* No data actually stored at present, but the existence of the
+ * file is itself significant.
+ */
+         if ((gv_file = fopen (PERSISTENT_DATA, WMODE)))
             fclose (gv_file);
+#endif
          return (0);
 /*    case 16: */        /* Spare */
 /*    case 17: */        /* Spare */
@@ -4416,9 +4563,12 @@ restore_it:
          if (Margin < 0) Margin = 0;
          Maxlen = Linlen - 2 * Margin;
 #ifdef READLINE
-         cnt = lbp - lbuf;
-         lbuf = (char *)realloc(lbuf, 2 * Maxlen + 1);
-         lbp = lbuf + cnt;
+         if (!cgi && !cps)
+         {
+            cnt = lbp - lbuf;
+            lbuf = (char *)realloc(lbuf, 2 * Maxlen + 1);
+            lbp = lbuf + cnt;
+         }
 #endif
          return (0);
 
@@ -4434,9 +4584,12 @@ restore_it:
          Margin = val;
          Maxlen = Linlen - val - val;
 #ifdef READLINE
-         cnt = lbp - lbuf;
-         lbuf = (char *)realloc(lbuf, 2 * Maxlen + 1);
-         lbp = lbuf + cnt;
+         if (!cgi && !cps)
+         {
+            cnt = lbp - lbuf;
+            lbuf = (char *)realloc(lbuf, 2 * Maxlen + 1);
+            lbp = lbuf + cnt;
+         }
 #endif
          return (0);
 
@@ -4611,16 +4764,64 @@ char *dbfile;
    fclose (db_file);
    if (bytes != TEXT_BYTES)
       return;
-   printf ("\n(Database %s created...)\n", DBNAME);
+   printf ("\nText database %s created.\n\n", DBNAME);
+   exit (0);
 }
+
+/*===========================================================*/
+
+#ifdef __STDC__
+FILE *try_db (char *dbdir, char *dbname, int trim)
+#else
+FILE *try_db (dbdir, dbname, trim)
+char *dbdir;
+char *dbname;
+int trim;
+#endif
+{
+   FILE *dbf;
+   char *dptr;
+   int len;
+
+   len = strlen (dbname) + 1;
+   if (dbdir && *dbdir && SEP != '?')
+      len += strlen (dbdir) + 1;
+   if ((dptr = (char *) malloc (len)) == NULL)
+   {
+      fprintf (stderr, "Unable to allocate db name buffer!\n");
+      exit (1);
+   }
+   if (dbdir && *dbdir && SEP != '?')
+   {
+      strcpy (dptr, dbdir);
+      if (trim)
+      {
+         char *cptr = strrchr (dptr, SEP);
+         len = cptr ? cptr - dptr + 1 : 0;
+      }
+      else
+         len = strlen (dptr);
+   }
+   else
+      len = 0;
+   if (len)
+      sprintf (dptr + len, "%c%s", SEP, dbname);
+   else
+      strcpy (dptr, dbname);
+   dbf = fopen (dptr, RMODE);
+   free (dptr);
+   return (dbf);
+}
+
 #endif /* USEDB */
 
 /*===========================================================*/
 
 #ifdef __STDC__
-int initialise (void)
+int initialise (char *prog)
 #else
-int initialise ()
+int initialise (prog)
+char *prog;
 #endif
 {
 #ifdef MEMORY
@@ -4634,7 +4835,7 @@ int initialise ()
 
    if ((text_buf = (char *) malloc (text_buf_len)) == NULL)
    {
-      (void) printf ("Can't allocate text buffer!\n");
+      printf ("Can't allocate text buffer!\n");
       return (1);
    }   
    lptr = text_buf;
@@ -4662,7 +4863,6 @@ int initialise ()
          PRINTF1 ("</p>\n");
       }
    }
-   *data_file = '\0';
    if (SEP != '?')
    {
       char *ptr;
@@ -4685,51 +4885,45 @@ int initialise ()
             *(log_name + 15) = '\0';
          strcat (log_name, ".log");
       }
-      
-#ifdef USEDB
-      if (dbs_dir)
-      {
-         strncpy (data_file, dbs_dir, sizeof (data_file) - 14);
-         ptr = data_file + strlen (data_file);
-         *ptr++ = SEP;
-         *ptr = '\0';
-      }
-      else if (ptr)
-      { 
-         if ((unsigned int)len > sizeof (data_file) - 13) 
-            len = sizeof (data_file) - 13;
-         strncpy (data_file, exec, len);
-      }
-#endif /* USEDB */
    }
 
 #ifdef USEDB
-   (void) strcat (data_file, DBNAME);
-
-   if ((text_file = fopen (data_file, RMODE)) == NULL)
+   text_file = try_db (prog, DBNAME, 1);
+   if (text_file == NULL)
+      text_file = try_db (dbs_dir, DBNAME, 0);
+#if defined(DDIR)
+   if (text_file == NULL)
+      text_file = try_db (DDIR, DBNAME, 0);
+#endif
+#if defined(DRDIR)
+   if (text_file == NULL)
+      text_file = try_db (DRDIR, DBNAME, 0);
+#endif
+   if (text_file == NULL)
+      text_file = fopen (DBNAME, RMODE);
+   if (text_file == NULL)
    {
       if ((text_file = fopen ("adv6.h", RMODE)))
-         (void) create_db (data_file);
+         create_db (DBNAME);     /* This will exit, if successful */
       else
       {
-         (void) printf ("Sorry, can't find the %s data file.\n", data_file);
+         printf ("Sorry, can't find the %s data file.\n", DBNAME);
          close_files ();
          return (1);
       }
-      if ((text_file = fopen (data_file, RMODE)) == NULL)
+      if ((text_file = fopen (DBNAME, RMODE)) == NULL)
       {
-         (void) printf ("Unable to find or construct the data file %s.\n",
-            data_file);
+         printf ("Unable to find or construct the data file %s.\n", DBNAME);
          return (1);
       }
    }
 #ifdef MEMORY
    text_bytes = fread (text, sizeof (char), TEXT_BYTES+1, text_file);
-   (void) clearerr (text_file);
-   (void) fclose (text_file);
+   clearerr (text_file);
+   fclose (text_file);
    if (text_bytes != TEXT_BYTES)
    {
-      (void) printf ("Wrong data file length: expected %d, got %d.\n",
+      printf ("Wrong data file length: expected %d, got %d.\n",
          TEXT_BYTES, text_bytes);
       return (1);
    }
@@ -4739,13 +4933,13 @@ int initialise ()
    chunk_start [0] = 0;
 #endif /* SWAP */
 #ifdef READFILE
-   (void) fread (text, sizeof (char), sizeof (text), text_file);
+   fread (text, sizeof (char), sizeof (text), text_file);
 #endif /* READFILE */
 #endif /* USEDB */
 
    virgin = *text;
 #ifdef PLAIN
-   strcpy (title, text + 1);
+   strcpy (title, (char *)text + 1);
 #else
    title [0] = text [1] ^ KNOT;
    titlen = 0;
@@ -4754,9 +4948,9 @@ int initialise ()
          break;
 #endif /* PLAIN */
    
-   if (strcmp (title, GAMEID) != 0)
+   if (strcmp (title, GAME_ID) != 0)
    {
-      (void) printf ("Version stamp mismatch!\n");
+      printf ("Version stamp mismatch!\n");
       return (1);
    }
    tp [0] = NULL;
@@ -4775,7 +4969,7 @@ int initialise ()
 
    if (com_name && *com_name && (com_file = fopen (com_name, RMODE)) == NULL)
    {
-      (void) printf ("Sorry, unable to open command file '%s'!\n", com_name);
+      printf ("Sorry, unable to open command file '%s'!\n", com_name);
       exit (0);
    }
    if (com_file)
@@ -4783,22 +4977,46 @@ int initialise ()
       fgets (comline, sizeof (comline), com_file);
       if (strncmp (comline, "Wiz: ", 5) == 0)
          mainseed = atol (comline + 5);
-      else if (strncmp (comline, GAMEID, strlen (GAMEID)) != 0)
+      else if (strncmp (comline, GAME_ID, strlen (GAME_ID)) != 0)
       {
          printf ("%s: wrong adventure version!\n", com_name);
          exit (0);
       }
       else
-         mainseed = atol (comline + strlen (GAMEID) + 1);
+         mainseed = atol (comline + strlen (GAME_ID) + 1);
    }
+
+#if defined(unix) || defined (linux)
+   if (cgi == 'H')
+   {
+      char dirname [64];
+      char *dn = dirname + 1;                /* Skips the leading '.'! */
+      sprintf (dirname, "%s.d", CGINAME);
+
+      chdir (getenv ("HOME"));
+      if (chdir ("acode") != 0)
+      {
+         mkdir ("acode", 0700);
+         chdir ("acode");
+      }
+/*
+ * Go to where A-code games live!
+ */
+      if (chdir (dn) != 0)
+      {
+         mkdir (dn, 0700);
+         chdir (dn);
+      }
+   }
+#endif /* unix || linux */
 
    if (*log_name)
    {
       if ((log_file = fopen (log_name, "a+")) == NULL)
-         (void) printf ("(Sorry, unable to open log file...)\n");
+         printf ("(Sorry, unable to open log file...)\n");
       else 
       if (cgi == 0 || cgi == 'x')
-         (void) fprintf (log_file, "%s: %u\n", GAMEID, mainseed);
+         fprintf (log_file, "%s: %u\n", GAME_ID, mainseed);
    }
 
    for (index = 0; (unsigned int)index < 
@@ -4927,7 +5145,7 @@ char **argv;
                if (*argv) dump_name = *argv; 
                continue;
             }
-            if (! log_name)
+            if (! *log_name)
             {
                strncpy (log_name, *argv, sizeof (log_name)); 
                *(log_name + sizeof (log_name) - 1) = '\0';
@@ -4956,10 +5174,52 @@ char **argv;
             end_pause = 1 - end_pause;
             continue;
          }
+         else if (*kwrd == 'v')
+         {
+#if defined(GAME_VERSION)
+            printf ("%s version %s", GAME_NAME, 
+               strcmp (GAME_VERSION, "99.99") == 0 ? "UNKNOWN" : GAME_VERSION);
+#if defined(GAME_DATE)
+            printf (", %s\n", GAME_DATE);
+#else /* ! GAME_DATE */
+            puts ("");
+#endif /* GAME_DATE */
+
+#else /* ! GAME_VERSION */
+            if (strchr (GAME_ID, ' '))
+               puts (GAME_ID);
+            else
+               puts ("Game version UNKNOWN\n");
+#endif /* GAME_VERSION */
+
+#if defined(ACDC_VERSION)
+            printf ("Acdc translator version %s\n", ACDC_VERSION);
+#else
+            puts ("Acdc translator version UNKNOWN");
+#endif /* ACDC_VERSION */
+
+            printf ("A-code kernel version %s\n", KERNEL_VERSION);
+#if defined(DBSTATUS)
+#  if DBSTATUS == 0
+            puts ("Text database preloaded into the executable.");
+#  endif /* DBSTATUS == 0 */
+#  if DBSTATUS == 1
+            puts ("Text database read into memory on startup.");
+#  endif /* DBSTATUS == 1 */
+#  if defined(SWAP)
+            printf ("Text database paged via %d internal 1KB swap buffers.\n", 
+               SWAP);
+#  endif /* DBSTATUS == 2 */
+#  if DBSTATUS == 3
+            puts ("All text read directly from the text database as required.");
+#  endif /* DBSTATUS == 3 */
+#endif /* DBSTATUS */
+            exit (0);
+         }
 #ifdef SLOW
          else if (*kwrd == 'o')
             cps = 30;
-#endif
+#endif /* SLOW */
          else if (*kwrd == 'l')
             log_wanted = 1;
          else if (*kwrd == 'H')
@@ -4968,12 +5228,12 @@ char **argv;
          {
             printf ("\nUsage: %s [options]\n\nOptions:\n", prog);
 #ifndef GLK
-            printf ("    -j                  invert game default setting for right-justifying text\n");
-            printf ("    -b                  invert game default setting for blank lines around prompt\n");
+            printf ("    -j                  invert default setting for right-justifying text\n");
+            printf ("    -b                  invert default setting for blank lines around prompt\n");
             printf ("    -s <W>x<H>[-<M>]    set screen size and margin\n");
-#ifndef READLINE
+#ifndef QT
             printf ("    -o [<baudrate>]     set output speed for authentic experience\n");
-#endif
+#endif /* QT */
             printf ("    -p                  invert game default setting for pausing before exit\n");
 #endif /* GLK */
 #ifdef USEDB
@@ -4986,6 +5246,7 @@ char **argv;
             if (undo_def != -2)
                printf ("    -u {on|off|forbid}  override default UNDO status\n");
 #endif /* UNDO */
+            printf ("    -v                  print version info and exit\n");
             printf ("    -h                  print this usage summary\n\n");
             exit (0);
          }
@@ -5122,13 +5383,13 @@ char **argv;
       Margin = 0;
    }
    if (mainseed == 0)
-      (void) time ((time_t *) &mainseed);
+      time ((time_t *) &mainseed);
    rseed = mainseed %= 32768L;
-   (void) irand (1);
+   irand (1);
    
-   if (initialise () != 0)
+   if (initialise (prog) != 0)
    {
-      (void) printf ("Sorry, unable to set up the world.\n");
+      printf ("Sorry, unable to set up the world.\n");
 #ifdef GLK
       glk_exit ();
 #else
@@ -5156,18 +5417,20 @@ char **argv;
          printf ("<h3>Restoring game in progress...</h3>\n\n");
          sprintf (name, "%s.adl", CGINAME);
          if ((adl = fopen (name, "r")) != NULL)
-         while ((c = fgetc(adl)) != EOF)
-            outchar (c);
-         fclose (adl);
+         {
+            while ((c = fgetc(adl)) != EOF)
+               outchar (c & 0377);
+            fclose (adl);
+         }
          goto run_it;
       }
    }
 
    if (cgi == 'x' && dump_name && *dump_name)
    {
-      cgi_name = CGINAME;
+      cgi_name = dump_name;
       special (997, &value [0]);
-      cgi_name = ".C.adv";
+      cgi_name = CGINAME;
    }
    else if (cgi == 'y')
       special (999, &value [0]);
@@ -5205,7 +5468,7 @@ run_it:
    }
 #endif /* UNDO */
 
-   (void) setjmp (loop_back);
+   setjmp (loop_back);
 
    if (quitting) 
    {
@@ -5227,15 +5490,15 @@ run_it:
          outbuf (1);
 #else         
          getinput (comline, 160);
-         putchar ('\n');
+         ACDCHAR('\n');
 #endif
       }
       else
       {
          if (text_len > 0)
             outbuf (1);
-         putchar ('\n');
-         putchar ('\n');
+         ACDCHAR('\n');
+         ACDCHAR('\n');
       }
       close_files ();
 #ifdef GLK
@@ -5250,7 +5513,7 @@ run_it:
    while (1)
    {
       rseed = mainseed;
-      (void) irand (1);
+      irand (1);
       mainseed = rseed;
       rseed = mainseed ^ 255;
       REPEAT_PROC ();
@@ -5588,18 +5851,18 @@ void finita ()
 #endif
 {
 #if !defined(MEMORY) && !defined(PRELOADED)
-   (void) fclose (text_file);
+   fclose (text_file);
 #endif /* MEMORY */
 #ifdef LOC_STATS
-   (void) printf ("\n(Locates: demanded %ld (+%ld), faults %ld (+%ld))\n",
+   printf ("\n(Locates: demanded %ld (+%ld), faults %ld (+%ld))\n",
       locate_demands, locate_demands - old_demands, 
       locate_faults, locate_faults - old_faults);
-   (void) printf ("(Locate ratio %ld%%)\n", 
+   printf ("(Locate ratio %ld%%)\n", 
       (((1000 * locate_faults) / locate_demands) + 5) / 10);
 #endif /* LOC_STATS */
 #ifdef QT
-   putchar(1);
-   putchar('q');
+   ACDCHAR(1);
+   ACDCHAR('q');
    outbuf(1);
    exit (0);
 #else
@@ -5901,7 +6164,7 @@ int *var;
          break;
         
       default:
-         (void)  PRINTF2 ("GLITCH! Bad svar code: %d\n", type);
+         PRINTF2 ("GLITCH! Bad svar code: %d\n", type);
    }
    return;
 }
@@ -5933,7 +6196,7 @@ int arg;
       strncpy (arg2_word, tp [tindex - 1], WORDSIZE);
    else if (arg != ARG2)
    {
-      (void) PRINTF2 ("GLITCH! Bad ARGn indicator: %d\n", arg);
+      PRINTF2 ("GLITCH! Bad ARGn indicator: %d\n", arg);
    }
 }
 
@@ -5947,11 +6210,11 @@ char *type;
 #endif
 {
    if (strcmp(type, "cgi") == 0)
-      return (cgi);
+      return (cgi && cgi != 'h');   /* Don't count htmlplay! */
    if (strcmp(type, "doall") == 0)
       return (value_all);
       
-   (void) PRINTF2 ("GLITCH! Bad test type: %s\n", type);
+   PRINTF2 ("GLITCH! Bad test type: %s\n", type);
    return (0);
 }
 #ifdef UNDO
@@ -6096,7 +6359,7 @@ void undo ()
       acnt = 0;
    else
    {
-      (void) inv_check (0);
+      inv_check (0);
       for (acnt = 0; acnt < cnt; acnt++)
       {
          if (edptr <= diffs + 4)
@@ -6145,7 +6408,7 @@ void redo ()
       acnt = 0;
    else
    {
-      (void) inv_check (0);
+      inv_check (0);
       for (acnt = 0; acnt < cnt; acnt++)
       {
          if (edptr > dptr)

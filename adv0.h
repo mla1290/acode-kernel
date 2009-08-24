@@ -34,8 +34,13 @@ extern void lbitmod (int a0, char a1, int a2, int a3, int *a4, short *a5);
 extern void bitmod (char a1, int a2, int a3);
 extern int lbitest (int a1, int a2, int *a3, short *a4);
 extern int bitest (int a1, int a2);
-extern void outchar (int text_char);
-extern char *outline (char *addr, int char_count, int break_count, int fill);
+extern void outchar (char text_char);
+#ifdef READLINE
+   extern char *outline 
+      (char *addr, int char_count, int break_count, int fill, int terminate);
+#else
+   extern char *outline (char *addr, int char_count, int break_count, int fill);
+#endif
 extern void finita (void);
 extern int irand (int less_then);
 extern int have (int l1, int l2, int l3);
@@ -61,6 +66,7 @@ extern void http_init (void);
 extern void (*procs[])(void);
 extern void pcall (int);
 extern int typed (char *);
+extern void svar(int type, int *var);
 #else
 extern void say ();
 extern int query ();
@@ -105,6 +111,7 @@ extern void http_init ();
 extern void (*procs[])();
 extern void pcall();
 extern int typed();
+extern void svar();
 #endif
 extern jmp_buf loop_back;
 extern int *value;
