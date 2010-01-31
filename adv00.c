@@ -1,23 +1,27 @@
-/* adv00.c: A-code kernel - copyleft Mike Arnautov 1990-2009.
+/* adv00.c: A-code kernel - copyleft Mike Arnautov 1990-2010.
  */
-#define KERNEL_VERSION "12.20, 24 Aug 2009"
+#define KERNEL_VERSION "12.22, 29 Jan 2010"
 /*
- * 24 Aug 09   MLA        Don't count 'H' mode as being a cgi mode.
+ * 29 Jan 10   MLA        Added supporting code for IFHTML.
+ * 20 Jan 10   MLA        Merged browser interface into main program.
+ * 17 Jan 10   MLA        BUG: Don't check char preceding start of text_buf!
+ * 25 Aug 09   MLA        Don't count 'B' mode as being a cgi mode.
  * 31 Jul 09   MLA        Create_db() now exits after constructing the database.
  * 21 Jul 09   MLA        Ditched data_file, now using try_db() and DBNAME.
  * 20 Jul 09   MLA        Added HAVE_CONFIG_H check for GNU automake tools.
  * 15 Jul 09   MLA        bug: Fixed gcc -Wall --pedantic warnings.
  * 13 Jul 09   MLA        Bug: Fixed .adl file handling.
- *                        Allowed HTTP mode in all styles!
- * 31 Mar 09   MLA        Added last output auto-restore in HTTP mode.
- * 22 Mar 09   MLA        Added auto-restore in HTTP mode.
- * 07 Mar 09   MLA        Added auto-save in HTTP mode.
- * 16 Feb 09   MLA        Added HTTP mode.
+ *                        Allowed browser mode in all styles!
+ * 31 Mar 09   MLA        Added last output auto-restore in browser mode.
+ * 22 Mar 09   MLA        Added auto-restore in browser mode.
+ * 07 Mar 09   MLA        Added auto-save in browser mode.
+ * 16 Feb 09   MLA        Added browser mode.
  * 29 Jan 09   MLA        Bug: Don't use orig1/orig2 for style < 11.
  *                        bug: Don't define typed() for style < 11.
  * 12 Nov 08   MLA        Added QT mode.
  * 22 Oct 08   MLA        Bug: Fixed fakecom word retrieval in fake().
- * 02 Oct 08   MLA        Bug: Always check for FSPECIAL and LSPECIAL being defined!
+ * 02 Oct 08   MLA        Bug: Always check for FSPECIAL and LSPECIAL being 
+ *                        defined!
  * 21 Sep 08   MLA        Randomised texts should not repeat the same value.
  *                        Also, cyclic text switches now cycle independently.
  * 23 May 08   MLA        Improved handling of AGAIN.
@@ -28,10 +32,12 @@
  *                        BUG: save undo changes within multiple commands too!
  * 30 Apr 08   MLA        Added PROMPT.
  * 12 Apr 08   MLA        Pass game name in AJAXTEST call to play.
- * 10 Apr 08   MLA        AJAXTEST added.
+ * 10 Apr 08   MLA        AJAXTEST added for browser interface.
  * 09 Apr 08   MLA        BUG: Fixed detail display.
- * 06 Apr 08   R.Mathews  bug: add MacOS to the list of OS with the '/' separator.
- * 03 Apr 08   MLA        Bug: outline() needs the terminate arg if using readline.
+ * 06 Apr 08   R.Mathews  bug: add MacOS to the list of OS with the '/' 
+ *                        separator.
+ * 03 Apr 08   MLA        Bug: outline() needs the terminate arg if using
+ *                        readline.
  * 22 Mar 08   MLA        BADWORD etc now go down from -2.
  * 20 Mar 08   MLA        BUG: Fixed IGNORE_EOL handling.
  *                        Bug: PARA_END only defined if ADVCONTEXT is.
@@ -467,6 +473,14 @@
 #  define READLINE
 #endif /* HAVE_LIBNCURSES && HAVE_LIBREADLINE */
 
+/* NB: The HTTP symbol is not actually used. It may get used at some
+ * future time, if the proxy functionality gets absorbed into the A-code
+ * kernel. Which may or may not happen. */
+ 
+#if (defined(QT) || defined(HTTP) || defined(GLK)) && defined(READLINE)
+#  undef READLINE
+#endif
+
 #ifdef READLINE
 #include "readline/readline.h"
 #include "readline/history.h"
@@ -515,17 +529,16 @@ char *dump_name = NULL;
 #define PARA_START     '\360'
 #define PARA_END       '\357'
 
-#ifdef QT
+#if (defined(QT) || defined(HTTP) || defined(GLK)) && !defined(NO_SLOW)
 #  define NO_SLOW
-#  undef GLK
-#  undef READLINE
-#  undef HTTP
-#endif /* QT */
+#endif
 
-#ifdef HTTP
-#  define NO_SLOW
+#if (defined(QT) || defined(HTTP)) && defined(GLK)
 #  undef GLK
-#  undef READLINE
+#endif
+
+#if defined(QT) && defined(HTTP)
+#  undef HTTP
 #endif
 
 #ifdef GLK
@@ -717,10 +730,9 @@ int location_all;
 #if !defined(NO_SLOW) && !defined(SLOW)
 #  define SLOW
 #endif
-#if defined(QT) || defined(GLK)
-#  ifdef SLOW
-#     undef SLOW
-#  endif
+
+#if (defined(QT) || defined(GLK) || defined(HTTP)) && defined(SLOW)
+#  undef SLOW
 #endif
 
 int cps = 0;
@@ -1598,19 +1610,24 @@ int terminate;
 
 /* Strip off any trailing blanks and line feeds */
 
-   lptr--;
-   while (*lptr == ' ' || *lptr == '\n')
+   if (lptr == text_buf + 1 && *text_buf == '\n')
+      strcpy (lptr++, "?");
+   else
    {
-      if (frag && *lptr == '\n')
-         frag = 0;         /* Note: it is not a fragment of text! */
       lptr--;
-      text_len--;
-   }
+      while (*lptr == ' ' || *lptr == '\n')
+      {
+         if (frag && *lptr == '\n')
+            frag = 0;         /* Note: it is not a fragment of text! */
+         lptr--;
+         text_len--;
+      }
 #ifdef BLOCK_END
-   if (*lptr == BLOCK_END && *(lptr - 1) == '\n')
-      frag = -1;           /* The text terminates in a block */
+      if (*lptr == BLOCK_END && *(lptr - 1) == '\n')
+         frag = -1;           /* The text terminates in a block */
 #endif /* BLOCK_END */
-   lptr++;                 /* Point just beyond last accepted char */
+      lptr++;                 /* Point just beyond last accepted char */
+   }
    
    if (frag <= 0)          /* It's a complete text */
    {
@@ -1658,7 +1675,7 @@ int terminate;
    if (cgi)
    {
       PRINTF1 ("<p>");
-      if (! *tptr && cgi == 'h')
+      if (! *tptr && cgi == 'b')
          { PRINTF1 ("</p>"); }
    }
       
@@ -2506,9 +2523,9 @@ int insize;
    extra_dwarvish = 0;
 #endif
 #ifdef ADVCONTEXT
-   if (cgi == 'h' && text_len > 3 && value [ADVCONTEXT] == 0 && !query_flag)
+   if (cgi == 'b' && text_len > 3 && value [ADVCONTEXT] == 0 && !query_flag)
 #else /* !ADVCONTEXT */
-   if (cgi == 'h' && text_len > 3 && !query_flag && !quitting)
+   if (cgi == 'b' && text_len > 3 && !query_flag && !quitting)
 #endif /* ADVCONTEXT */
    {
       FILE *adl;
@@ -2535,7 +2552,7 @@ int insize;
          fclose (adl);
       }
    }
-   if (text_len == 1 && cgi >= 'h')
+   if (text_len == 1 && (cgi >= 'b' || lptr == text_buf))
       text_len = 0;
 #ifdef QT
    if (value[ADVCONTEXT] > 2)
@@ -2546,7 +2563,7 @@ int insize;
 #endif /* QT */
    if (text_len)
       outbuf (0);
-   if (cgi == 'h')
+   if (cgi == 'b')
    {
       ACDCHAR(0176);
       fflush (stdout);
@@ -3035,7 +3052,8 @@ int which_arg;
    int ra;
    char myword [WORDSIZE];
   
-   strcpy (myword, which_arg == 0 ? orphan_word : tp [tindex]);
+   strncpy (myword, 
+      which_arg == 0 ? orphan_word : tp [tindex], WORDSIZE);
 #ifdef DWARVEN
    if (value [DWARVEN]) shift_down (myword, WORDSIZE);
 #endif /* DWARVEN */
@@ -3463,7 +3481,7 @@ int textref;
       strncpy (orphan_word, arg1_word, 20);
    }
 #ifdef ADVCONTEXT
-   else if (cgi >= 'h' && *orphan_word && orphan == 0)
+   else if (cgi >= 'b' && *orphan_word && orphan == 0)
       find_word (&type, &orphan, &tadr, 0, 0);
 #endif
    else
@@ -3938,7 +3956,7 @@ int key;
    if (key < 0)
    {
 #ifdef ADVCONTEXT
-      if (cgi >= 'h')
+      if (cgi >= 'b')
       {
          if ((memory_file = fopen (fname, RMODE)) != NULL)
          {
@@ -3966,7 +3984,7 @@ int key;
       }
       memcpy (image_ptr, IMAGE, IMAGE_SIZE);
 #ifdef ADVCONTEXT
-      if (cgi >= 'h')
+      if (cgi >= 'b')
       {
          if ((memory_file = fopen (fname, WMODE)) != NULL &&
             fwrite (image_base, 1, IMAGE_SIZE, memory_file) == IMAGE_SIZE)
@@ -3981,7 +3999,7 @@ int key;
    else
    {
 #ifdef ADVCONTEXT
-      if (cgi >= 'h')
+      if (cgi >= 'b')
       {
          if ((image_ptr = (char *) malloc (IMAGE_SIZE)) != NULL &&
              (memory_file = fopen (fname, RMODE)) != NULL &&
@@ -4137,7 +4155,7 @@ got_name:
          }
          else if (key == 999 || key == 997)
          {
-            if (cgi == 'h' && key == 999)
+            if (cgi == 'b' && key == 999)
                return (0);
             PRINTF ("Oops! We seem to have lost your current game session!\n");
             PRINTF ("\nSorry about that!\n");
@@ -4155,7 +4173,7 @@ got_name:
          {
             make_name (cgi_name, save_name);
 #ifdef ADVCONTEXT
-            if (value [ADVCONTEXT] == 0 && cgi != 'h') value [ADVCONTEXT] = 1;
+            if (value [ADVCONTEXT] == 0 && cgi != 'b') value [ADVCONTEXT] = 1;
             *qcon = value [ADVCONTEXT];
 #endif /* ADVCONTEXT */
          }
@@ -4191,7 +4209,7 @@ got_name:
          CHKSUM(IMAGE + OFFSET_LOCBIT, LOCBIT_SIZE)
          CHKSUM(IMAGE + OFFSET_VARBIT, VARBIT_SIZE)
 #ifdef ADVCONTEXT
-         if (cgi >= 'h' && key == 998)
+         if (cgi >= 'b' && key == 998)
          {
             CHKSUM(qwords, sizeof(qwords));
             CHKSUM(qvals, sizeof(qvals));
@@ -4201,7 +4219,7 @@ got_name:
          fwrite (tval, 1, sizeof(time_t), game_file);
          fwrite (IMAGE, 1, IMAGE_SIZE, game_file);
 #if STYLE >=11
-         if (cgi >= 'h' && key == 998)
+         if (cgi >= 'b' && key == 998)
          {
             fwrite (qwords, sizeof (char), sizeof (qwords), game_file);
             fwrite (qvals, sizeof (char), sizeof (qvals), game_file);
@@ -4216,11 +4234,11 @@ got_name:
          *var = (ferror (game_file)) ? 1 : 0;
          fclose (game_file);
 #ifdef UNDO
-         if (value [UNDO_STAT] >= 0 && diffs && (diffs < dptr || cgi >= 'h'))
+         if (value [UNDO_STAT] >= 0 && diffs && (diffs < dptr || cgi >= 'b'))
          {
             strcpy (save_name + strlen(save_name) - 3, "adh");
             if (((diffs && dptr > diffs + 4) || 
-               (cgi >= 'h' && value [ADVCONTEXT] <= 1)) &&
+               (cgi >= 'b' && value [ADVCONTEXT] <= 1)) &&
                   (game_file = fopen (save_name, WMODE)))
             {
                int len = dptr - diffs;
@@ -4290,7 +4308,7 @@ restore_it:
             return (0);
          }
          chksav = 0;
-         if (cgi < 'h')
+         if (cgi < 'b')
          {
             *var = memstore (2);
             if (*var != 0)
@@ -4331,7 +4349,7 @@ restore_it:
             fread (scratch, 1, imgsiz, game_file);
          }
 #ifdef ADVCONTEXT
-         if (cgi >= 'h' && key == 999)
+         if (cgi >= 'b' && key == 999)
          {
             fread (qwords, sizeof (char), sizeof (qwords), game_file);
             fread (qvals, sizeof (char), sizeof (qvals), game_file);
@@ -4392,7 +4410,7 @@ restore_it:
                while (val < LTEXT)
                   *(value + (val++)) = 0;
 #ifdef ADVCONTEXT
-            if (cgi >= 'h' && key == 999)
+            if (cgi >= 'b' && key == 999)
             {
                CHKSUM(qwords, sizeof(qwords));
                CHKSUM(qvals, sizeof(qvals));
@@ -4463,7 +4481,7 @@ restore_it:
 	    }            
          }
 #endif /* UNDO */
-         *var = (key == 999 && cgi == 'h') ? 999 : 0;
+         *var = (key == 999 && cgi == 'b') ? 999 : 0;
          return (0);
 
       case 3:          /* Delete saved game */
@@ -4986,8 +5004,7 @@ char *prog;
          mainseed = atol (comline + strlen (GAME_ID) + 1);
    }
 
-#if defined(unix) || defined (linux)
-   if (cgi == 'H')
+#if (defined(unix) || defined (linux)) && !(defined(MSDOS) || defined(_WIN32))
    {
       char dirname [64];
       char *dn = dirname + 1;                /* Skips the leading '.'! */
@@ -5091,7 +5108,7 @@ void zap_cgi_dump (void)
    char name [64];
    int len =sprintf (name, "%s.adv", CGINAME) - 1;
    unlink (name);
-   *(name + len) = 'h';
+   *(name + len) = 'b';
    unlink (name);
    *(name + len) = 'l';
    unlink (name);
@@ -5113,11 +5130,6 @@ char **argv;
    char *cptr;
    char *prog = *argv;
    char *opt;
-#ifdef AJAXTEST
-   char playpath [256];
-   strncpy (playpath, *argv, 255);
-   *(playpath + 255) = 0;
-#endif /* AJAXTEST */
    if (Linlen == 0) Linlen = 32767;
    if (Screen == 0) Screen = 32767;
    Maxlen = Linlen - 2 * Margin;
@@ -5222,8 +5234,8 @@ char **argv;
 #endif /* SLOW */
          else if (*kwrd == 'l')
             log_wanted = 1;
-         else if (*kwrd == 'H')
-            cgi = 'H';
+         else if (*kwrd == 'B')
+            cgi = (*(kwrd + 1) == 'R') ? 'R' : 'B';
          else if (*kwrd == 'h')
          {
             printf ("\nUsage: %s [options]\n\nOptions:\n", prog);
@@ -5339,10 +5351,13 @@ char **argv;
          }         
       }
 
-   if (cgi == 'H' || cgi == 'h')
+   if (cgi == 'R')
    {
-#ifdef AJAXTEST
       char gname [64];
+      char playpath [256];
+      
+      strncpy (playpath, prog, 255);
+      *(playpath + 255) = '\0';
       char *cptr = strrchr (playpath, '/');
       if (cptr == NULL)
       {
@@ -5357,10 +5372,13 @@ char **argv;
       }
       strcpy (cptr, "lib/play");
       execl (playpath, gname, gname, NULL);
-#endif /* AJAXTEST */
+/*
+ * If execl failed, default to ordinary ASCII run.
+ */
+      cgi = 0;
       compress = 0;
       justify = 0;
-      end_pause = (cgi == 'h');
+      end_pause = 0;
    }
 
 #ifdef READLINE
@@ -5404,9 +5422,9 @@ char **argv;
 #endif
    value [THERE] = value [HERE] = FLOC;
 
-  if (cgi == 'H')
+  if (cgi == 'B')
    {
-      cgi = 'h';
+      cgi = 'b';
       if (! dump_name || ! *dump_name)
          special(999, &value [0]);
       if (value[0] == 999)
@@ -5476,13 +5494,15 @@ run_it:
       close_files ();
       exit (0);
 #else
-      if (cgi == 'h')
+#ifndef GLK
+      if (cgi == 'b')
       {
          outchar (0177);
          zap_cgi_dump ();
          getinput (NULL, 0);   /* This call won't return */
       }
       else 
+#endif /* !GLK */
       if (end_pause)
       {
           PRINTF ("(To exit, press ENTER)");
@@ -6209,8 +6229,10 @@ int test (type);
 char *type;
 #endif
 {
+   if (strcmp(type, "html") == 0)
+      return (cgi);
    if (strcmp(type, "cgi") == 0)
-      return (cgi && cgi != 'h');   /* Don't count htmlplay! */
+      return (cgi && cgi != 'b');   /* Don't count proxy! */
    if (strcmp(type, "doall") == 0)
       return (value_all);
       

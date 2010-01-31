@@ -1,4 +1,4 @@
-/* adv01.c: A-code kernel - copyleft Mike Arnautov 1990-2009.
+/* adv01.c: A-code kernel - copyleft Mike Arnautov 1990-2010.
  *
  * 21 Jul 09   MLA             Allow for GNU automake builds.
  * 13 Feb 09   MLA             Don't need list_saved for styles < 11.
@@ -62,15 +62,8 @@ extern int argc;
 
 int winglk_startup_code(const char* cmdline)
 {
-   char name[80];
-   char *nptr = name;
-   char *cptr = GAMEID;
-   
-   while (isalnum (*cptr) && (nptr - name) < 78)
-      *nptr++ = *cptr++;
-   *nptr = '\0';
-   winglk_app_set_name(name);
-   winglk_window_set_title(GAMEID);
+   winglk_app_set_name(GAME_NAME);
+   winglk_window_set_title(GAME_ID);
    argc = 1;
    argv = arglist;
    return 1;
