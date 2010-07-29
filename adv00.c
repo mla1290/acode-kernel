@@ -1,7 +1,8 @@
 /* adv00.c: A-code kernel - copyleft Mike Arnautov 1990-2010.
  */
-#define KERNEL_VERSION "12.29, 02 May 2010"
+#define KERNEL_VERSION "12.30, 29 Jul 2010"
 /*
+ * 29 Jul 10   MLA        Wait for *genuine* initial load request!
  * 30 Apr 10   MLA        Improved HTML display characteristics.
  * 12 Apr 10   MLA        Bug: If creating the conf file, read it too!
  *                        Also, deamonize if running via a browser.
@@ -681,7 +682,7 @@ int amatch = 1;
 #  include <fcntl.h>
    char *brbuf;
    int brbuflen = 0;
-   void get_command_from_browser (char *);
+   int get_command_from_browser (char *);
    void send_response_to_browser (char *);
    void invoke_browser (void);
 #endif
@@ -2648,7 +2649,7 @@ int insize;
    if (com_file == NULL && cgi == 'b')
    {
       outbuf (0);
-      get_command_from_browser (inbuf);
+      (void) get_command_from_browser (inbuf);
    }
 #endif /* BROWSER */
    if (com_file == NULL && cgi != 'b')
@@ -6957,7 +6958,15 @@ char *page[] =
    "   if (debug > 0)\n",
    "      report(\"Sending '\" + text + \"'\");\n",
 #endif /* DEBUG */
-   "   var http = new XMLHttpRequest();\n",
+   "   var http = null;\n",
+   "   try { http = new XMLHttpRequest(); }\n",
+   "   catch(e) {\n",
+   "      try { http = new ActiveXObject(\"Msxml2.XMLHTTP\"); }\n",
+   "      catch(e) {\n",
+   "         try { http = new ActiveXObject(\"Microsoft.XMLHTTP\"); }\n",
+   "         catch(e) {\n",
+   "            shutit('<h2>Sorry, your browser is not compatible with this game!</h2><br />');\n",
+   "         }\n      }\n   }\n",
    "   http.onreadystatechange = function(e)\n",
    "      {\n",
    "         if (http.readyState == 4)\n",
@@ -7334,7 +7343,7 @@ void send_response_to_browser (char *cptr)
 /* Wait for the browser to call and either respond (to a keep-alive
  * request), or extract and return the player's command.
  */
-void get_command_from_browser (char *command)
+int get_command_from_browser (char *command)
 {
    int len;
    char combuf[4096];
@@ -7391,8 +7400,8 @@ void get_command_from_browser (char *command)
          exit (1);
       }
          
-      if (command == NULL) return;
-      *command = '\0';
+      if (command == NULL) 
+         return (strstr (combuf, "status=0x0") ? 0 : 1);
 
       if ((cptr = strstr (combuf, "status=")) != NULL)
       {
@@ -7418,6 +7427,7 @@ void get_command_from_browser (char *command)
 
 /* Got a command! */
 
+   *command = '\0';
    cptr = command;
    while (*aptr != ' ' && *aptr != '\n')
    {
@@ -7450,6 +7460,7 @@ void get_command_from_browser (char *command)
 #ifdef DEBUG
    printf ("=== Exiting %s: '%s'\n", "get_command_from_browser", command); 
 #endif /* DEBUG */
+   return (0);
 }
 
 /*====================================================================*/
@@ -7541,10 +7552,11 @@ void invoke_browser (void)
 #endif
 
    set_alarm_trap ();
-   get_command_from_browser (NULL);    /* Accept the initial page request */
+   (void) get_command_from_browser (NULL); /* Accept initial call (page request?) */
+   do
+      send_page();                          /* Send the initial page */
+   while (get_command_from_browser (NULL)); /* Accept next call (AJAX request?) */
    timer = TIMELIMIT;
-   send_page();                     /* Set up the initial page */
-   get_command_from_browser (NULL);    /* Accept the initial text request */
 #ifdef DEBUG
    printf ("=== Exiting %s\n", "invoke_browser"); 
 #endif /* DEBUG */
