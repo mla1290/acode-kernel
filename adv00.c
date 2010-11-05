@@ -1,7 +1,9 @@
 /* adv00.c: A-code kernel - copyleft Mike Arnautov 1990-2010.
  */
-#define KERNEL_VERSION "12.30, 29 Jul 2010"
+#define KERNEL_VERSION "12.31, 02 Nov 2010"
 /*
+ * 02 Nov 10   MLA        BUG: Fixed text buffer trimming in outbuf().
+ *                        Bug: Store constrained conf values.
  * 29 Jul 10   MLA        Wait for *genuine* initial load request!
  * 30 Apr 10   MLA        Improved HTML display characteristics.
  * 12 Apr 10   MLA        Bug: If creating the conf file, read it too!
@@ -799,9 +801,9 @@ void glkgets (buf, buflen)
 #  endif
 {
    int gotline = 0;
+   int len;
    event_t event;
    
-   memset (buf, '\0', buflen);
    glk_request_line_event(mainwin, buf, buflen, 0);
    while (!gotline)
    {
@@ -811,12 +813,14 @@ void glkgets (buf, buflen)
       {
          case evtype_LineInput:
             gotline = 1;
-/* Glk doesn't put a '\n' before the terminating null! */               
-            strcat(buf,"\n");
+
          default:
             break;
       }
    }
+   len = event.val1;
+   *(buf + len) = '\n';
+   *(buf + len + 1) = '\0';
 }
 #endif
 
@@ -1891,11 +1895,23 @@ void outbuf (int terminate)
    if (lptr > text_buf)
    {
       char *eptr = lptr - 1;
+      char trm = '\0';
       while ((*eptr == ' ' || *eptr == NBSP || *eptr == '\n') && eptr > text_buf)
+      {
+         if (!trm) trm = *eptr;
          eptr--;
-      if (eptr + 2 < lptr)
-         lptr = eptr + 2;
-      *lptr = '\0';
+      }
+      if (trm)
+      {
+         *(++eptr) = trm;
+         lptr = eptr + 1;
+         *lptr = '\0';
+      }
+/*
+ *      if (eptr + 2 < lptr)
+ *         lptr = eptr + 2;
+ *      *lptr = '\0';
+ */
    }
    
    if (log_file || !cgi)
@@ -4745,17 +4761,19 @@ int trim;
 #define FG       2
 #define PROMPT   3
 #define DBG      4
-#define BUTTON   5
-#define COMPACT  6
-#define COMMANDS 7
-#define LOGFILE  8
-#define JUSTIFY  9
-#define MARGIN  10
-#define WIDTH   11
-#define HEIGHT  12
+#define SURROUND 5
+#define BUTTON   6
+#define COMPACT  7
+#define COMMANDS 8
+#define PXWIDTH  9
+#define LOGFILE 10
+#define JUSTIFY 11
+#define MARGIN  12
+#define WIDTH   13
+#define HEIGHT  14
 
 char *conf[] = { NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
-                 NULL, NULL, NULL, NULL, NULL };
+                 NULL, NULL, NULL, NULL, NULL, NULL, NULL };
 
 #define SUBMIT_BUTTON "&nbsp;&nbsp;<input type=\"submit\" name=\"Submit\", value=\"Submit\">"
 
@@ -4833,18 +4851,19 @@ char *recase (char *token, int cflag)
 
 void handle_token (int type, int attribute, char *aptr, int max, int *val)
 {
-    if (conf [attribute] != NULL)
-       return;
-    if ((type == 'p' && atoi (aptr) > 0) ||  /* A positive number */
-       (type == 'n' && atoi (aptr) >= 0))    /* A non-negative number */
+   char buf [16]; 
+   int lval;
+   if (conf [attribute] != NULL)
+      return;
+   if ((type == 'p' && atoi (aptr) > 0) ||  /* A positive number */
+      (type == 'n' && atoi (aptr) >= 0))    /* A non-negative number */
    {
-      if (val)
-      {
-         *val = atoi (aptr);
-         if (max > 0 && *val > max) *val = max;
-         if (max < 0 && *val < -max) *val = max;
-      }
-      store_conf (attribute, aptr);
+      lval= atoi (aptr);
+      if (max > 0 && lval > max) lval = max; 
+      if (max < 0 && lval < -max) lval = -max;
+      if (val) *val = lval;
+      sprintf (buf, "%d", lval);
+      store_conf (attribute, buf);
    }
    else if (type == 'b')                     /* A binary choice */
    {
@@ -4998,6 +5017,8 @@ void read_conf ()
                store_conf (FG, aptr);
          if (strcmp (cptr, "PROMPT") == 0)
             store_conf (PROMPT, aptr);
+         if (strcmp (cptr, "SURROUND") == 0)
+            store_conf (SURROUND, aptr);
          if (strcmp (cptr, "DEBUG") == 0 || strcmp(cptr, "DBG") == 0)
             store_conf (DBG, aptr);
       }
@@ -5013,6 +5034,8 @@ void read_conf ()
             handle_token ('c', COMPACT, aptr, 0, &compress);
          else if (strcmp (cptr, "COMMANDS") == 0)
             handle_token ('p', COMMANDS, aptr, 2000, NULL);
+         else if (strcmp (cptr, "WIDTH") == 0)
+            handle_token ('p', PXWIDTH, aptr, -500, NULL);
       }
       else if (strcmp (*tkn, "LOG") == 0 || strcmp (*tkn, "LOGFILE") == 0)
 #else /* ! BROWSER */
@@ -5125,10 +5148,14 @@ void read_conf ()
       store_conf (PROMPT, "red");
    if (conf [DBG] == NULL)
       store_conf (DBG, "blue");
+   if (conf [SURROUND] == NULL)
+      store_conf (SURROUND, "#222222");
    if (conf [BUTTON] == NULL)
       store_conf (BUTTON, "Y");
    if (conf [COMMANDS] == NULL || atoi (conf [COMMANDS]) <= 0)
       store_conf (COMMANDS, "200");
+   if (conf [PXWIDTH] == NULL || atoi (conf [PXWIDTH]) <= 500)
+      store_conf (PXWIDTH, "700");
 #endif /* BROWSER */
    if (conf [COMPACT] == NULL)
       store_conf (COMPACT, compress ? "Y" : "N");
@@ -6554,6 +6581,20 @@ void glue_text();
 /*===========================================================*/
 
 #ifdef __STDC__
+void zap_text (void)
+#else
+void zap_text();
+#endif
+{
+/* Zap all of the accumulated text */
+   lptr = text_buf;
+   *lptr = '\0';
+   text_len = 0;
+}
+
+/*===========================================================*/
+
+#ifdef __STDC__
 void verbatim (int arg)
 #else
 void verbatim(arg);
@@ -7173,19 +7214,27 @@ char *page[] =
    "=Q",
    "}\nspan.debug{color:",
    "=D",
-   "}\nspan.red{color:red}\ntd{max-width:675px}\n",
-   "input{max-width:650px}\ntd{background-color:",
+   "}\nspan.red{color:red}\ntd{max-width:",
+   "=W",
+   "px}\n",
+   "input{max-width:",
+   "=T",
+   "px}\ntd{background-color:",
    "=B",
-   "}</style></head><body bgcolor=\"#222222\" text=\"",
+   "}</style></head><body bgcolor=\"",
+   "=S",
+   "\" text=\"",
    "=F",
    "\" onLoad=\"javascript:doit(0);\">\n",
    "<center><table border=\"1\" cellpadding=\"16\"><tr><td>\n",
    "<div id=\"console\">\n",
    "</div>\n<div id=\"comform\">",
    "<form method=\"get\" action=\"javascript:doit(1)\" id=\"inform\">",
-   "<span class=\"query\">?&nbsp;</span><input id=\"command\" size=\"65\" ",
+   "<span class=\"query\">?&nbsp;</span><input id=\"command\" size=\"",
+   "=I",
+   "\" ",
    "maxlength=\"160\" type=\"text\">\n",
-   "=S",
+   "=V",
    "<br /></form></div><div id=\"conbot\">",
    "</div></td></tr></table></center></body></html>\n",
    "=="
@@ -7201,12 +7250,17 @@ void send_page(void)
    int i = 0;
    char mlimit [32];
    char compact [32];
+   char tdlen [16];
+   char inplen [16];
    
 #ifdef DEBUG
    printf ("=== Entering %s\n", "send_page"); 
 #endif /* DEBUG */
    sprintf (mlimit, "moveLimit = %d;\n", atoi (conf [COMMANDS]));      
    sprintf (compact, "compact = %d;\n", *conf[COMPACT] == 'Y' ? 1 : 0);
+   sprintf (tdlen, "%d", atoi (conf [PXWIDTH]) - 20);      
+   sprintf (inplen, "%d", 
+      atoi (conf [PXWIDTH]) / 10 - (*conf[BUTTON] == 'Y' ? 10 : 0));
    optr = obuf + 84;
    while (1)
    {
@@ -7224,9 +7278,13 @@ void send_page(void)
             case 'D': cptr = conf[DBG];         break; /* Debug text colour */
             case 'B': cptr = conf[BG];          break; /* Background colour */
             case 'F': cptr = conf[FG];          break; /* Text colour */
+            case 'S': cptr = conf[SURROUND];    break; /* Surround colour */
+            case 'W': cptr = conf[PXWIDTH];     break; /* Table width */
+            case 'T': cptr = tdlen;             break; /* Text display width */
+            case 'I': cptr = inplen;            break; /* Input field lemgth */
             case 'M': cptr = mlimit;            break;
             case 'C': cptr = compact;           break;
-            case 'S': if (*(conf [BUTTON]) == 'Y')
+            case 'V': if (*(conf [BUTTON]) == 'Y')
                          cptr = SUBMIT_BUTTON;  break;
             default:
                fprintf (stderr, "Bad substitution tag in page.html: ='%c'!", key);
@@ -7500,8 +7558,8 @@ void set_alarm_trap (void)
    addsig.sa_handler = SIG_IGN;         /* Not intersted */
 #if !(defined (MSDOS) || defined(_WIN32))
    addsig.sa_flags = SA_NOCLDWAIT;      /* No zombies */
-#endif /* !(MSDOS || _WIN32) */
    sigaction (SIGCHLD, &addsig, NULL);  /* Handle (ignore) CHILD */
+#endif /* !(MSDOS || _WIN32) */
 }
 
 /*====================================================================*/
