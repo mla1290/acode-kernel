@@ -1,7 +1,8 @@
 /* adv00.c: A-code kernel - copyleft Mike Arnautov 1990-2010.
  */
-#define KERNEL_VERSION "12.31, 02 Nov 2010"
+#define KERNEL_VERSION "12.32, 12 Nov 2010"
 /*
+ * 12 Nov 10   MLA        bug: Use width, not max-width for HTML td elements.
  * 02 Nov 10   MLA        BUG: Fixed text buffer trimming in outbuf().
  *                        Bug: Store constrained conf values.
  * 29 Jul 10   MLA        Wait for *genuine* initial load request!
@@ -7214,7 +7215,7 @@ char *page[] =
    "=Q",
    "}\nspan.debug{color:",
    "=D",
-   "}\nspan.red{color:red}\ntd{max-width:",
+   "}\nspan.red{color:red}\ntd{width:",
    "=W",
    "px}\n",
    "input{max-width:",
