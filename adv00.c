@@ -1,7 +1,11 @@
-/* adv00.c: A-code kernel - copyleft Mike Arnautov 1990-2010.
+/* adv00.c: A-code kernel - copyleft Mike Arnautov 1990-2011.
  */
-#define KERNEL_VERSION "12.32, 12 Nov 2010"
+#define KERNEL_VERSION "12.33, 09 Jan 2011"
 /*
+ * 09 Jan 11   MLA        default_to() now sets ARG2 to indicate failure type.
+ * 20 Nov 10   MLA        Open .rrefs file in show_data() as <game_name>.rrefs.
+ *                        Always write refno into the dump.
+ *                        bug: Make dump usable without undo being defined.
  * 12 Nov 10   MLA        bug: Use width, not max-width for HTML td elements.
  * 02 Nov 10   MLA        BUG: Fixed text buffer trimming in outbuf().
  *                        Bug: Store constrained conf values.
@@ -2817,7 +2821,11 @@ int type;
 #endif
             (type < 0 || bitest (index, type)))
       {
-         if (fits >= 0) return;   /* Can't happen if key > 0 */
+         if (fits >= 0) 
+         {
+            value [ARG2] = AMBIGWORD;
+            return;   /* Can't happen if key > 0 */
+         }
          fits = index;
          if (key) break;
       }
@@ -2861,6 +2869,7 @@ failed:
    if (key > 0)
       value_all = 0;
 #endif /* ALL */
+   value [ARG2] = 0;
    return;
 }
 
@@ -3525,7 +3534,9 @@ get_arg2:
       value [STATUS] = 2;
    }
 
+#if defined(PLSCLARIFY) || (defined(FACT) && defined(LACT))
 got_command:
+#endif
    if (value [STATUS] == 1 && orphan)
    {
       if ((orphan > LOBJ && value [ARG1] < LOBJ) ||
@@ -6635,7 +6646,91 @@ char *type;
    PRINTF2 ("GLITCH! Bad test type: %s\n", type);
    return (0);
 }
+
+/*===========================================================*/
+
+#ifdef __STDC__
+void show_bits (int refno, int size)
+#else
+void show_bits (refno, size)
+int refno;
+int size;
+#endif
+{
+   int i;
+   fprintf (stderr, " - ");
+   for (i = 0; i < 8 * size * sizeof(short); i++)
+      fprintf (stderr, "%c", bitest (refno, i) ? '1' : '0');
+}
+
+/*===========================================================*/
+
+#ifdef __STDC__
+void show_data (void)
+#else
+void show_data ()
+#endif
+{
+   int i;
+   FILE *rrefs;
+   char buf [80];
+   
+   sprintf (buf, "%s.rrefs", CGINAME);
+   rrefs = fopen (buf + 1, RMODE);
+   for (i = FOBJ; i < LTEXT; i++)
+   {
+      if (rrefs)
+      {
+         fgets (buf, sizeof(buf) - 1, rrefs);
+         *(buf + strlen(buf) - 1) = '\0';
+         fprintf (stderr, "%25s %4d", buf + 8, i);
+      }
+      else
+      {
+         fprintf (stderr, "%4d", i);
+      }
+      
+      fprintf (stderr, "%5d", *(value + i));
+      if (i >= FOBJ && i <= LOBJ)
+      {
+         show_bits (i, OBJSIZE);
+         fprintf (stderr, " @ %4d", *(location + i));
+      }
+      else if (i >= FLOC && i <= LLOC )
+         show_bits (i, LOCSIZE);
+      else if (i >= FVAR && i <= LVAR )
+         show_bits (i, VARSIZE);
+      fprintf (stderr, "\n");
+   }
+   
+   if (rrefs)
+      fclose (rrefs);
+}
+
+/*===========================================================*/
 #ifdef UNDO
+
+#ifdef __STDC__
+int inv_check (int mode)
+#else
+int inv_check (mode)
+int mode;
+#endif
+{
+   int i;
+   if (mode == 0)
+   {
+      memcpy (inhand, location, LOCS_SIZE * sizeof(int));
+      return (0);
+   }
+   for (i = 0; i <= LOBJ; i++)
+   {
+      if ((inhand[i] == INHAND && location[i] != INHAND) ||
+          (inhand[i] != INHAND && location[i] == INHAND))
+             return (1);
+   }
+   return (0);
+}
 
 /*===========================================================*/
 
@@ -6674,91 +6769,6 @@ int checkdo ()
       val = 1;
    return (val);
 }
-
-/*===========================================================*/
-
-#ifdef __STDC__
-int inv_check (int mode)
-#else
-int inv_check (mode)
-int mode;
-#endif
-{
-   int i;
-   if (mode == 0)
-   {
-      memcpy (inhand, location, LOCS_SIZE * sizeof(int));
-      return (0);
-   }
-   for (i = 0; i <= LOBJ; i++)
-   {
-      if ((inhand[i] == INHAND && location[i] != INHAND) ||
-          (inhand[i] != INHAND && location[i] == INHAND))
-             return (1);
-   }
-   return (0);
-}
-
-/*===========================================================*/
-
-#ifdef __STDC__
-void show_bits (int refno, int size)
-#else
-void show_bits (refno, size)
-int refno;
-int size;
-#endif
-{
-   int i;
-   fprintf (stderr, " - ");
-   for (i = 0; i < 8 * size * sizeof(short); i++)
-      fprintf (stderr, "%c", bitest (refno, i) ? '1' : '0');
-}
-
-/*===========================================================*/
-
-#ifdef __STDC__
-void show_data (void)
-#else
-void show_data ()
-#endif
-{
-   int i;
-   FILE *rrefs;
-   char buf [80];
-   
-   rrefs = fopen ("game.rrefs", RMODE);
-   
-   for (i = FOBJ; i <= LTEXT; i++)
-   {
-      if (rrefs)
-      {
-         fgets (buf, sizeof(buf) - 1, rrefs);
-         *(buf + strlen(buf) - 1) = '\0';
-         fprintf (stderr, "%25s", buf + 8);
-      }
-      else
-      {
-         fprintf (stderr, "%4d", i);
-      }
-      
-      fprintf (stderr, "%5d", *(value + i));
-      if (i >= FOBJ && i <= LOBJ)
-      {
-         fprintf (stderr, " @ %4d", *(location + i));
-         show_bits (i, OBJSIZE);
-      }
-      else if (i >= FLOC && i <= LLOC )
-         show_bits (i, LOCSIZE);
-      else if (i >= FVAR && i <= LVAR )
-         show_bits (i, VARSIZE);
-      fprintf (stderr, "\n");
-   }
-   
-   if (rrefs)
-      fclose (rrefs);
-}
-
 
 /*===========================================================*/
 
