@@ -1,8 +1,14 @@
 /* adv00.c: A-code kernel - copyleft Mike Arnautov 1990-2011.
  */
-#define KERNEL_VERSION "12.33, 09 Jan 2011"
+#define KERNEL_VERSION "12.35, 05 Aug 2011"
 /*
+ * 05 Aug 11   MLA        Replaced <br /> with <br>.
+ * 09 Mar 11   MLA        Bug: Fixed log contents and log replay.
+ *                        Bug: Also fixed IGNORE_EOL -- again!
+ * 05 Mar 11   MLA        Finally finished A-code 12 CGI mode.
+ * 12 Jan 11   MLA        Added MKDIR2ARG symbol check for own scripts.
  * 09 Jan 11   MLA        default_to() now sets ARG2 to indicate failure type.
+ *                        bug: don't append NL to obuf if not wanted.
  * 20 Nov 10   MLA        Open .rrefs file in show_data() as <game_name>.rrefs.
  *                        Always write refno into the dump.
  *                        bug: Make dump usable without undo being defined.
@@ -1418,8 +1424,10 @@ char *iptr;
    
    while (*iptr && *iptr != '\n') iptr++;
 
-   if (*iptr == '\n' && ++lincnt >= Screen)
+   if (*iptr == '\n' && ++lincnt >= Screen - (compress ? 1 : 2))
    {
+      if (strcmp(iptr + 1, "? ") == 0)
+         return (0);
       memset (reply, ' ', 20);
       strcpy (reply + Margin, "[More?] ");
       PRINTF1 (reply);
@@ -1591,7 +1599,7 @@ char *centre_text_lines (char *iptr)
       while (jptr < iptr) ofilter (jptr++);
       if (*iptr != '\n')
          break;
-      oputs (cgi ? "<br />\n" : "\n");
+      oputs (cgi ? "<br>\n" : "\n");
    }
    return (iptr);
 }
@@ -1633,7 +1641,7 @@ char *centre_block (char *iptr)
          iptr++;
       }
       if (*iptr != BLOCK_END)
-         oputs (cgi && type != QUOTE_START ? "<br />\n" : "\n");
+         oputs (cgi && type != QUOTE_START ? "<br>\n" : "\n");
       else
          break;
       iptr++;
@@ -1649,7 +1657,8 @@ void format_buffer (int terminate, int html)
    char *bptr = lptr;
    int frag = (bptr > text_buf && *(bptr - 1) != '\n');
    int type;
-
+   int ignore_eol = 0;
+   
    optr = obuf + (cgi == 'b' ? 84 : 0);
    
    while (*iptr == '\n')
@@ -1662,7 +1671,7 @@ void format_buffer (int terminate, int html)
 
 /* Prepare the output opening and skip any introductory line feeds. */
 
-   if (html) oputs ("<div name=\"chunk\">");
+   if (html) oputs ("-<div name=\"chunk\">");
       
 /* Now process the text buffer */
 
@@ -1671,6 +1680,11 @@ void format_buffer (int terminate, int html)
       switch (*iptr)
       {
          case '\n':
+            if (ignore_eol)
+            {
+               ignore_eol = 0;
+               break;
+            }
             if (!html)
             {  if (compress < 2 || *(optr - 1) != '\n')
                oputc ('\n');
@@ -1678,12 +1692,12 @@ void format_buffer (int terminate, int html)
             if (*(iptr + 1) == '\n')
             {
                if (html)
-                  oputs (compress > 1 ? "<br />\n" : "<br />&nbsp;<br />\n");
+                  oputs (compress > 1 ? "<br>\n" : "<br>&nbsp;<br>\n");
                else if (compress < 2) oputc ('\n');
                while (*(iptr + 1) == '\n') iptr++;
             }
             else if (html && *(iptr + 1))
-               oputs ("<br />\n");  
+               oputs ("<br>\n");  
             break;
          case NBSP:
             if (html) oputs ("&nbsp;");
@@ -1721,8 +1735,11 @@ void format_buffer (int terminate, int html)
             }  
 #endif
             break;
-         case BLOCK_END:   /* Should not happen at all! */
-            break;         /* Ignore */
+         case IGNORE_EOL:
+            ignore_eol = 1; /* Ignore the next EOL char */
+            break;
+         case BLOCK_END:    /* Should not happen at all! */
+            break;          /* Ignore */
          default:
             iptr = ofilter (iptr);
             break;
@@ -1731,7 +1748,6 @@ void format_buffer (int terminate, int html)
       iptr++;
       if (*iptr == '\0') break;
    }
-   
    if (html)
    {
       char tf;
@@ -1742,11 +1758,11 @@ void format_buffer (int terminate, int html)
             "<span id=\"prompt\">" : "<span class=\"query\">");
          oputc (c);
          oputs ("</span>");
-         if (!compress) oputs ("<br />&nbsp;<br />");
+         if (!compress) oputs ("<br>&nbsp;<br>");
       }
       else
       {
-         if (!compress && bptr > text_buf) oputs("<br />&nbsp;<br />");
+         if (!compress && bptr > text_buf) oputs("<br>&nbsp;<br>");
          oputs ("<span id=\"prompt\"></span>");
       };
       oputs ("</div>\n");
@@ -1763,8 +1779,8 @@ void format_buffer (int terminate, int html)
       else if (frag)                         tf = 'q';   /* Query */
 #endif /* ADVCONTEXT */
       else if (cgi == 'b' && compress)       tf = 'c';   /* Compressed text */
-      else                                   tf = 't';   /* Normal text */
-      oputc (tf);
+      else                                   tf = 't';   /* Ordinary test */
+      *(obuf + (cgi == 'b' ? 84 : 0)) = tf;
    }
    else if (frag)
    {
@@ -1773,7 +1789,10 @@ void format_buffer (int terminate, int html)
          oputc (' ');
    }
    else if (!quitting)
-      oputs ("\n? ");
+   {
+      if (!compress) oputc('\n');
+      oputs ("? ");
+   }
 }
 /*====================================================================*/
 void stretch_line (char *iptr, char t)
@@ -1922,7 +1941,13 @@ void outbuf (int terminate)
    if (log_file || !cgi)
       format_buffer (terminate, 0);    /* Non-HTML format for the log */
    if (log_file)
+   {
       outtext ('L');
+#ifdef READLINE
+      if (log_file && cgi)
+         fprintf(log_file, prompt_line);
+#endif /* READLINE */
+   }
    if (!cgi)
       outtext ('C');
    else
@@ -1937,7 +1962,10 @@ void outbuf (int terminate)
          send_response_to_browser (obuf);
       else
 #endif /* BROWSER */
+      {
          fputs (obuf, stdout);
+         fflush (stdout);
+      }
    }
 
 /* Now zap the text buffer */
@@ -2549,7 +2577,7 @@ int insize;
 #endif
 #ifdef ADVCONTEXT
    if (text_len > 3 && value [ADVCONTEXT] == 0 && 
-      !query_flag && cgi != 'y' && cgi <= 'b')
+      !query_flag && cgi <= 'b')
 #else /* !ADVCONTEXT */
    if (text_len > 3 && !query_flag && !quitting)
 #endif /* ADVCONTEXT */
@@ -2579,9 +2607,9 @@ int insize;
 #endif /* QT */
 #ifndef READLINE
    if (!*text_buf && !quitting)
-      PRINTF ("\n? ");
+      PRINTF (compress ? "? " : "\n? ");
 #endif /* READLINE */
-   if (cgi != 'b' && *text_buf)
+   if (cgi != 'b' && cgi != 'y' && *text_buf)
    {
       outbuf (0);
       scrchk (NULL);
@@ -2605,6 +2633,8 @@ int insize;
    {
       strncpy (inbuf, cgicom, insize - 1);
       cgi = 'z';
+      if (log_file)
+         fprintf (log_file,"\nREPLY: %s\n", inbuf);
       return;
    }
 #endif
@@ -2615,6 +2645,13 @@ int insize;
       char lastbuf [256];
       while (1)
       {
+#ifdef READLINE
+         if (!cgi) 
+         {
+            printf (prompt_line);
+            *prompt_line = '\0';
+         }
+#endif
          if (fgets (mybuf, insize, com_file) == NULL || 
              strncmp (mybuf, "INTERACT", 8) == 0)
          {
@@ -2625,9 +2662,10 @@ int insize;
          cptr = mybuf + strlen (mybuf);
          while (*(cptr - 1) == '\n' || *(cptr - 1) == '\r') cptr--;
          *cptr = '\0';
-         if (strncmp (mybuf, "REPLY: ", 7) == 0)
+         *lastbuf = '\0';
+         if (strncmp (mybuf, "REPLY:", 6) == 0)
          {
-            strncpy (inbuf, mybuf + 7, insize);
+            strncpy (inbuf, mybuf + 6, insize);
             if (!cgi)
                printf ("%s%s%s\n", lastbuf, inbuf, compress ? "" : "\n");
             else
@@ -4041,11 +4079,17 @@ try_again:
             {
 #if STYLE >= 11
                int cnt = -1;
-               if (cgi < 'x')
-                  cnt = process_saved (0, file_name);
+               cnt = process_saved (0, file_name);
                if (cnt == 0)
+               {
+                  if (cgi >= 'x')
+                  {
+                     PRINTF("You have no saved games to restore.\n")
+                     longjmp (loop_back, 1);
+                  }
                   PRINTF (
    "Can't see any saved games here, but you may know of some elsewhere.\n")
+	       }
                else if (cnt == 1)
                {
                   value [ARG2] = strlen(file_name);
@@ -4433,7 +4477,7 @@ restore_it:
          *var = unlink (save_name);
  if (*var)
  {
-   printf ("Failed: %s - error code: %d<br />\n", save_name, *var);
+   printf ("Failed: %s - error code: %d<br>\n", save_name, *var);
    system ("pwd");
  }
          strcpy (save_name + strlen(save_name) - 3, "adh");
@@ -5229,7 +5273,7 @@ char *prog;
       chdir (getenv ("HOME"));
       if (chdir ("acode") != 0)
       {
-#if defined(MSDOS) || defined(_WIN32)
+#if (defined(MSDOS) || defined(_WIN32)) && !defined(MKDIR2ARG)
          mkdir ("acode");
 #else
          mkdir ("acode", 0700);
@@ -5249,7 +5293,7 @@ char *prog;
  */
       if (chdir (dirname + 1) != 0)
       {
-#if defined(MSDOS) || defined(_WIN32)
+#if (defined(MSDOS) || defined(_WIN32)) && !defined(MKDIR2ARG)
          mkdir (dirname + 1);
 #else
          mkdir (dirname + 1, 0700);
@@ -5258,14 +5302,14 @@ char *prog;
       }
 
 #if !defined(GLK) && !defined(QT)
-   read_conf (); /* Process the config file if any and set defaults if needed */
-   if (!cgi)
-   {
-      putchar ('\n');
-      for (index = 0; index < Margin; index++)
-         putchar (' ');
-   }
-   PRINTF2("A-code kernel %s\n", KERNEL_VERSION);
+      read_conf (); /* Process the config file, if any -- we may */
+      if (!cgi)                    /* need the default therefrom */
+      {
+         putchar ('\n');
+         for (index = 0; index < Margin; index++)
+            putchar (' ');
+      }
+      PRINTF2("A-code kernel %s\n", KERNEL_VERSION);
 #endif
 
 /* Do a one-off copy of saved games from where they might be to the new
@@ -6961,7 +7005,7 @@ char *page[] =
    "<html><head><title>",
    "=G",
    "</title>",
-   "<script type=\"text/javascript\">\n",
+   "<script type=\"text/javascript\"><!--\n",
 #ifdef DEBUG
    "debug = 1;\n",
    "timeLimit = 250000;\n",
@@ -6990,7 +7034,7 @@ char *page[] =
    "   { document.getElementById('comform').innerHTML = ''; }\n",
 #ifdef DEBUG
    "function report(text)\n",
-   "   { writeit('<span class=\"debug\">' + text + '</span><br />'); }\n",
+   "   { writeit('<span class=\"debug\">' + text + '</span><br>'); }\n",
 #endif /* DEBUG */
    "function shutit(text)\n",
    "{\n",
@@ -6999,9 +7043,9 @@ char *page[] =
    "   writeit(text + '<div class=\"red\"><center>' +\n",
    "      '<input class=\"custom-button\" ' +\n",
    "      'onclick=\"javascript:self.close()\" id=\"shutit\"' +\n",
-   "      'type=\"button\" value=\"Close this tab/window\" /><br />' +\n",
+   "      'type=\"button\" value=\"Close this tab/window\" /><br>' +\n",
    "      '<span class=\"red\">This button will only work if your ' +\n",
-   "      ' browser<br /> is not being paranoid about security.</span></p>' +\n",
+   "      ' browser<br> is not being paranoid about security.</span></p>' +\n",
    "      '</center></div>');\n",
    "}\n",
    "function sendit(text)\n",
@@ -7017,7 +7061,7 @@ char *page[] =
    "      catch(e) {\n",
    "         try { http = new ActiveXObject(\"Microsoft.XMLHTTP\"); }\n",
    "         catch(e) {\n",
-   "            shutit('<h2>Sorry, your browser is not compatible with this game!</h2><br />');\n",
+   "            shutit('<h2>Sorry, your browser is not compatible with this game!</h2><br>');\n",
    "         }\n      }\n   }\n",
    "   http.onreadystatechange = function(e)\n",
    "      {\n",
@@ -7026,7 +7070,7 @@ char *page[] =
    "            if (http.status == 200)\n",
    "               showit (http.responseText);\n",
    "            else\n",
-   "               shutit('<h2>Server process not responding!</h2><br />');\n",
+   "               shutit('<h2>Server process not responding!</h2><br>');\n",
    "         }\n",
    "      };         \n",
    "   http.open('GET', '/?status=' + escape(text), true);\n",
@@ -7109,7 +7153,7 @@ char *page[] =
    "      if (state != 2)\n",
    "      {\n",
    "         writeit(\n",
-   "            '<p><h2>Server process not responding!<br />' +\n",
+   "            '<p><h2>Server process not responding!<br>' +\n",
    "            'Please close this window and restart.</h2></p>');\n",
    "      }\n",
    "      window.clearInterval(interval);\n",
@@ -7118,12 +7162,11 @@ char *page[] =
    "   }\n",
    "   else\n",
    "   {\n",
-   "      var len = text.length;\n",
-   "      var type = text.substr(len - 1, 1);\n",
+   "      var type = text.substr(0, 1);\n",
    "      if (type == 'k')\n",
    "         return;\n",
    "      rType = type;\n",
-   "      writeit(text.substr(0, len - 1));\n",
+   "      writeit(text.substr(1));\n",
    "      if (type == 'f')\n",
    "         shutit('');\n",
    "      else\n",
@@ -7169,10 +7212,10 @@ char *page[] =
    "         var tx = (rType == 'q' || rType == 'm' ||\n",
    "                    rType == 'r' || rType == 's') ?\n",
    "                       prompt.innerHTML : '?';\n",
-   "         if (rType == 'c') tx = '<br />?';\n",
+   "         if (rType == 'c') tx = '<br>?';\n",
    "         el.className = 'query';\n",
    "         el.innerHTML = tx + ' ' + com +\n", 
-   "             (rType == 't' ? '<br />&nbsp<br />' : '');\n",
+   "             (rType == 't' ? '<br>&nbsp<br>' : '');\n",
    "         prompt.parentNode.replaceChild(el, prompt);\n",
    "      }\n",
    "      if (com)\n",
@@ -7221,11 +7264,11 @@ char *page[] =
    "      report('Exiting doit');\n",
 #endif /* DEBUG */
    "}\n",
-   "</script><style type=\"text/css\">\nspan.query{color:",
+   "--></script><style type=\"text/css\">\nspan.query{color:",
    "=Q",
    "}\nspan.debug{color:",
    "=D",
-   "}\nspan.red{color:red}\ntd{width:",
+   "}\nspan.red{color:red}\ntd.view{width:",
    "=W",
    "px}\n",
    "input{max-width:",
@@ -7237,7 +7280,7 @@ char *page[] =
    "\" text=\"",
    "=F",
    "\" onLoad=\"javascript:doit(0);\">\n",
-   "<center><table border=\"1\" cellpadding=\"16\"><tr><td>\n",
+   "<center><table border=\"1\" cellpadding=\"16\"><tr><td class=\"view\">\n",
    "<div id=\"console\">\n",
    "</div>\n<div id=\"comform\">",
    "<form method=\"get\" action=\"javascript:doit(1)\" id=\"inform\">",
@@ -7246,7 +7289,7 @@ char *page[] =
    "\" ",
    "maxlength=\"160\" type=\"text\">\n",
    "=V",
-   "<br /></form></div><div id=\"conbot\">",
+   "<br></form></div><div id=\"conbot\">",
    "</div></td></tr></table></center></body></html>\n",
    "=="
 };
