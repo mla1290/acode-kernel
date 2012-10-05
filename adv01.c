@@ -1,4 +1,4 @@
-/* adv01.c: A-code kernel - copyleft Mike Arnautov 1990-2011.
+/* adv01.c: A-code kernel - copyleft Mike Arnautov 1990-2012.
  *
  * 01 Apr 10   MLA             Added make_copy functionality.
  * 21 Jul 09   MLA             Allow for GNU automake builds.

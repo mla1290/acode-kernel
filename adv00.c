@@ -1,7 +1,17 @@
-/* adv00.c: A-code kernel - copyleft Mike Arnautov 1990-2011.
+/* adv00.c: A-code kernel - copyleft Mike Arnautov 1990-2012.
  */
-#define KERNEL_VERSION "12.35, 05 Aug 2011"
+#define KERNEL_VERSION "12.39, 05 October 2012"
 /*
+ * 05 Oct 12   MLA        bug: always honour the right margin!
+ *                        Bug: fixed conffile location code to work on Windows.
+ *                        Bug: fixed Windows home path.
+ * 30 Sep 12   MLA        Bug: Don't count log lines for screen length!
+ * 18 Jun 12   MLA        BUG: Fixed STYLE 1 segfault when ARG2 is BADWORD.
+ * 17 Jun 12   MLA        Removed some unused symbols.
+ * 14 May 12   MLA        BUG: Fixed STYLE 1 orphan handling.
+ *                        BUG: Fixed STYLE 1 full display mode.
+ * 18 Feb 12   A.Staniforth
+ *                        Bug: Don't use AMBIGWORD in STYLE 1!
  * 05 Aug 11   MLA        Replaced <br /> with <br>.
  * 09 Mar 11   MLA        Bug: Fixed log contents and log replay.
  *                        Bug: Also fixed IGNORE_EOL -- again!
@@ -307,6 +317,24 @@
 
 #include "adv1.h"
 
+#if defined(WIN32)||defined(_WIN32)||defined(__WIN32)||defined (_WIN32_)||defined(__WIN32__)
+#  define WINDOWS 1
+#  define UNIX 0
+#  define MACOS 0
+#else
+#  if defined(_MACH_)
+#     define WINDOWS 0
+#     define UNIX 1
+#     define MACOS 1
+#  else
+#     if defined(__unix__) || defined(__linux__)
+#        define WINDOWS 0
+#        define UNIX 1
+#        define MACOS 0
+#     endif
+#  endif
+#endif
+
 #ifdef USEDB
 #  undef USEDB
 #endif /* USEDB */
@@ -393,15 +421,11 @@
 #  define USEDB
 #endif
 
-#if defined(linux) || defined(__linux) || defined(__linux__)
-#  define PLATFORM "LINUX"
-#else
-#  if defined(__MACH__)
-#     define PLATFORM "MACOS"
-#  else
-#     define PLATFORM "UNKNOWN"
-#  endif
-#endif
+#if WINDOWS
+#  define HOME "HOMEPATH"
+#else /* !WINDOWS */
+#  define HOME "HOME"
+#endif /* WINDOWS */
 
 #include <stdio.h>
 #include <time.h>
@@ -456,17 +480,13 @@
 #  endif /* vms */
 #endif /* HAVE_CONFIG_H */
 
-#if defined(unix) || defined(__CYGWIN__) || defined(__MACH__)
+#if UNIX
 #  define SEP '/'
 #else
-#  if defined(MSDOS) || defined(_WIN32)
+#  if WINDOWS
 #     define SEP '\\'
 #  else
-#     ifdef __50SERIES
-#        define SEP '>'
-#     else
-#        define SEP '?'
-#     endif
+#     define SEP '?'
 #  endif
 #endif
 
@@ -797,6 +817,31 @@ char *lp;
                      chksum&=07777777777L;} 
 
 #define RESTORING "Restoring game in progress...\n\n"
+
+#define BROWEXE  0
+#define BG       1
+#define FG       2
+#define PROMPT   3
+#define DBG      4
+#define SURROUND 5
+#define BUTTON   6
+#define COMPACT  7
+#define HISTORY  8
+#define PXWIDTH  9
+#define LOGFILE 10
+#define JUSTIFY 11
+#define MARGIN  12
+#define WIDTH   13
+#define HEIGHT  14
+#define BORDER  15
+
+char *conf[] = { NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
+                 NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL };
+
+
+#ifdef BROWSER
+#define SUBMIT_BUTTON "&nbsp;&nbsp;<input type=\"submit\" name=\"Submit\", value=\"Submit\">"
+#endif /* BROWSER */
 
 /******************************************************************/
 
@@ -1845,8 +1890,8 @@ void outtext (char t)
    char *bptr;
    char c;
    int i;
-   int mx = cgi ? 80 : Maxlen;
    int mg = cgi ? 0 : Margin;
+   int mx = cgi ? 80 : Maxlen;
    
    while (1)
    {
@@ -1856,6 +1901,7 @@ void outtext (char t)
       {
          if (*jptr == '\0' || *jptr == '\n') { bptr = jptr; break; }
          if (*jptr == ' ' || *jptr == '-') bptr = jptr;
+         if (jptr == iptr + mx) break;
          jptr++;
       }
 #ifdef READLINE
@@ -1868,7 +1914,7 @@ void outtext (char t)
          while (iptr < jptr) showchar (*iptr++, t);
          if (*jptr == '\0') break;
          showchar (*iptr++, t);
-         if (*(iptr - 1) == '\n' && scrchk (iptr)) break;
+         if (*(iptr - 1) == '\n' && t != 'L' && scrchk (iptr)) break;
          continue;
       }
       if (!bptr) bptr = jptr;
@@ -1886,14 +1932,14 @@ void outtext (char t)
          while (*iptr)
          {
             showchar (*iptr++, t);
-            if (*(iptr - 1) == '\n' && scrchk (iptr)) break;
+            if (*(iptr - 1) == '\n' && t != 'L' && scrchk (iptr)) break;
          }
       if (c && *(bptr - 1) != '\n') showchar ('\n', t);
       if (!c) break;
       if (jptr < bptr) *jptr = ' ';    /* Restore the blank */
       *bptr = c;                       /* Restore whatever it was */
       iptr = bptr;
-      if (scrchk (iptr)) break;
+      if (t != 'L' && scrchk (iptr)) break;
    }
 }
 /*====================================================================*/
@@ -2052,11 +2098,10 @@ int qualifier;
    int var_what_flag;
    int var_qual_flag;
    int quip_flag;
+#if STYLE == 1
    int brief_flag = 0;
+#endif /* STYLE */
    int voc_flag;
-#ifdef FULL
-   int full_flag;
-#endif /* FULL */
 #if defined(DETAIL) || STYLE >= 11
    int detail_flag;
 #endif /* DETAIL */
@@ -2072,7 +2117,6 @@ int qualifier;
    int ea;
    char *cp;
    char tc;
-   char tl = 0;
 
 /* NB: The below flag values are hard-coded in acdc's dominor.c! */
 
@@ -2082,25 +2126,11 @@ int qualifier;
 #if defined(DETAIL) || STYLE >= 11
    detail_flag =   key & DETAIL_FLAG;
 #endif
-#ifdef FULL
-   full_flag =     key & FULL_FLAG;
-#endif
    qual_flag =     key & QUAL_FLAG;
    var_qual_flag = key & VQUAL_FLAG;
    var_what_flag = key & VAR_FLAG;
    value_flag =    key & VALUE_FLAG;
    voc_flag =      key & VOC_FLAG;
-#ifdef OBSOLETE
-#ifdef FULL
-   if (bitest (STATUS, TERSE))
-      full_flag = 0;
-   else if (bitest (STATUS, FULL) ||
-      (bitest (STATUS, TERSE) == 0 && bitest (STATUS, BRIEF) == 0))
-         full_flag = 1;
-   else if (bitest (STATUS, BRIEF))
-      full_flag = bitest (value [HERE], BEENHERE) ? 0 : 1;
-#endif /* FULL */
-#endif /* OBSOLETE */
 
    if (var_what_flag)
    {
@@ -2146,12 +2176,20 @@ int qualifier;
    }
    else if (what >= FLOC)
    {
-#if defined(TERSE) && defined(FULL) && defined(BEENHERE)
-      if (bitest (STATUS, TERSE) || 
-         (! bitest (STATUS, FULL) && bitest (what, BEENHERE)))
+#if STYLE == 1
+      if (bitest (STATUS, TERSE) ||
+         (bitest (what, BEENHERE) && bitest (STATUS, BRIEF) &&
+         !bitest (STATUS, FULL)))
             ta = brief_desc [what];
       else
-#endif
+#else /* STYLE > 1 */
+#  if defined(TERSE) && defined(FULL) && defined(BEENHERE)
+      if (bitest (STATUS, TERSE) || 
+         (!bitest (STATUS, FULL) && bitest (what, BEENHERE)))
+            ta = brief_desc [what];
+      else
+#  endif /* TERSE... */
+#endif /* STYLE */
          ta = long_desc [what];
    }
    else if (what >= FOBJ)
@@ -2161,14 +2199,16 @@ int qualifier;
          ta = detail_desc [what];
       else
 #endif
-#if STYLE >= 11
+#if STYLE >= 11 || defined(DETAIL)
       if (detail_flag)
          ta = detail_desc [what];
       else
 #endif
       if (location [what] == INHAND)
       {
+#if STYLE == 1
          brief_flag = 1;
+#endif /* STYLE */
          ta = brief_desc [what];
       }
       else
@@ -2218,7 +2258,11 @@ int qualifier;
          textqual = value [what];
       else if (text_info [twat] == TIED_TEXT)
          textqual = value [value [what]];
+#if STYLE == 1
+      else if (qualifier == ARG2 && value [ARG2] < BADWORD)
+#else 
       else if (qualifier == ARG2 && value [ARG2] >= 0)
+#endif  /* STYLE */
          textqual = value [value [qualifier]];
    }
 
@@ -2227,7 +2271,6 @@ int qualifier;
    
    while (tc != '\0')
    {
-      tl = tc;
 #ifdef NEST_TEXT
       if (tc == NEST_TEXT)
       {
@@ -2861,7 +2904,11 @@ int type;
       {
          if (fits >= 0) 
          {
+#if STYLE > 1
             value [ARG2] = AMBIGWORD;
+#else
+            value [ARG2] = BADWORD;
+#endif
             return;   /* Can't happen if key > 0 */
          }
          fits = index;
@@ -2973,16 +3020,16 @@ int which_arg;
 #endif
 {
    int bottom, middle, top;
-   int old_refno;
 #if STYLE > 1
+   int old_refno;
+   int exact;
+#  if STYLE >= 11
    int old_type;
    int old_tadr;
-#endif /* STYLE */
-#if STYLE >= 11
    int ovoc;
    int olen;
+#  endif /* STYLE >= 11 */
 #endif
-   int exact;
    int va;
    char *wp;
    int ra;
@@ -3025,19 +3072,25 @@ int which_arg;
    *refno = BADWORD;
    bottom++;
    top = VOCAB_SIZE;
+#if STYLE > 1
    old_refno = BADWORD;
+#endif /* STYLE */
 
    while (bottom < top)
    {
       wp = myword;
 
       if (get_char (va = voc_addr [bottom]) == '!')
+#if STYLE == 1
+        va++;
+#else
       {
          va++;
          exact = 1;
       }
       else
          exact = 0;
+#endif /* STYLE */
       ra = va;
       while (*wp == get_char (ra))
       {
@@ -3095,11 +3148,11 @@ int which_arg;
             if (nref && !oref)
                { old_refno = *refno; if (get_char (va) == '\0') break; }
          }
-#endif /* STYLE >= 11 */
          old_tadr = *tadr;
          old_type = *type;
-#endif /* STYLE */
+#endif /* STYLE >= 11 */
          old_refno = *refno;
+#endif /* STYLE */
          if (get_char (va) == '\0') break;
       }
       bottom++;
@@ -3640,11 +3693,13 @@ got_command:
                                                                  )
          tp [tindex] = NULL;    /* Forget rest of command */
 #if STYLE < 11
-   else if (value [STATUS] == 2 && (bitest (value [ARG2], VERB)) &&
-      !(bitest (value [ARG1], VERB)))
+   else if (value [STATUS] == 2 && 
+      value [ARG2] <= LVERB && value [ARG2] >= FVERB && 
+      (value[ARG1] > LVERB || value[ARG1] < FVERB))
 #else /* STYLE >= 11 */
    else if (value [STATUS] == 2 && value [ARG2] != SCENEWORD && 
-      (bitest (value [ARG2], VERB)) && !(bitest (value [ARG1], VERB)))
+      value [ARG2] <= LVERB && value [ARG2] >= FVERB && 
+      (value[ARG1] > LVERB || value[ARG1] < FVERB))
 #endif /* STYLE */
    {
       int temp_val;
@@ -4014,7 +4069,6 @@ int *var;
 {
    static char save_name [168];
    static char *scratch;
-   char *image_ptr;
    char file_name [168];
    FILE *game_file;
    int val, val1;
@@ -4309,7 +4363,6 @@ restore_it:
             if (scratch == NULL)
                return (0);
          }
-         image_ptr = scratch;
 #ifdef DEBUG
          puts ("Reading image...");
 #endif
@@ -4812,27 +4865,7 @@ int trim;
 
 #endif /* USEDB */
 
-#define BROWEXE  0
-#define BG       1
-#define FG       2
-#define PROMPT   3
-#define DBG      4
-#define SURROUND 5
-#define BUTTON   6
-#define COMPACT  7
-#define COMMANDS 8
-#define PXWIDTH  9
-#define LOGFILE 10
-#define JUSTIFY 11
-#define MARGIN  12
-#define WIDTH   13
-#define HEIGHT  14
-
-char *conf[] = { NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
-                 NULL, NULL, NULL, NULL, NULL, NULL, NULL };
-
-#define SUBMIT_BUTTON "&nbsp;&nbsp;<input type=\"submit\" name=\"Submit\", value=\"Submit\">"
-
+#define CONFDIR  "acode"
 #define CONFFILE "acode.conf"
 
 /*====================================================================*/
@@ -4972,8 +5005,12 @@ void check_browser (char *name)
    struct stat stat_buf;
    char gpath[256];
    char *path;
+   int sep = SEP;
    
-   if (strchr (name, SEP))
+#if WINDOWS
+   sep = strchr(name, '/') ? '/' : SEP;
+#endif
+   if (strchr (name, sep))
    {
       if (stat (name, &stat_buf) != -1)
          store_conf (BROWEXE, name);
@@ -4990,7 +5027,10 @@ void check_browser (char *name)
          if (eptr - sptr < 255 - strlen (name))
          {
             strncpy (gpath, sptr, eptr - sptr);
-            *(gpath + (eptr - sptr)) = SEP;
+#if WINDOWS
+            sep = strchr(gpath, '/') ? '/' : SEP;
+#endif
+            *(gpath + (eptr - sptr)) = sep;
             strcpy (gpath + (eptr + 1 - sptr), name);
             if (stat (gpath, &stat_buf) != -1)
             {
@@ -5002,7 +5042,7 @@ void check_browser (char *name)
             break;
          sptr = ++eptr;
       }
-   }   
+   }
 }
 
 /*====================================================================*/
@@ -5013,45 +5053,72 @@ void read_conf ()
    char *tkn [3];
    char *cptr;
    FILE *cfile = NULL;
+   int use_default = 0;
+   char *default_browser;   
    
-   strcpy (cbuf, prog);
-   if ((cptr = strrchr (cbuf, SEP)) != NULL)
-   {
-      strcpy (cptr + 1, CONFFILE);
-      cfile = fopen (cbuf, RMODE);
-   }
-   if (cfile == NULL)
-   {
-      sprintf (cbuf, "%s/acode/%s", getenv ("HOME"), CONFFILE);
-      cfile = fopen (cbuf, RMODE);
-   }
-   if (cfile == NULL)
-      cfile = fopen (CONFFILE, RMODE);
-   if (cfile == NULL)
-      return;
+/* Different platfoms have different ways of invoking the default browser */
 
-   *(cbuf + sizeof(cbuf) - 1) = '\0';
-   while (fgets (cbuf, sizeof(cbuf) - 1, cfile))
+   if (MACOS)
+      default_browser = "/usr/bin/open";
+   else if (UNIX)
+      default_browser = "/usr/bin/xdg-open";
+   else if (WINDOWS)
+      default_browser =   /* But there's no Windows browser mode as yet! */
+        "c:\\windows\\system32\\rundll32.exe url.dll,FileProtocolHandler";
+   else
+      default_browser = "NONE";
+
+/* Look for the config file */
+
+   strcpy (cbuf, prog);             /* Start with the executable's pathname */
+   if ((cptr = strrchr (cbuf, SEP)) != NULL)  /* Find the last separator */
+   {
+      strcpy (cptr + 1, CONFFILE);  /* Append conffile name to it */
+      cfile = fopen (cbuf, RMODE);  /* Try opening */
+   }
+   if (cfile == NULL)   /* No good? Well try standard homedir place */
+   {
+      sprintf (cbuf, "%s%c%s%c%s", 
+        getenv (HOME), SEP, CONFDIR, SEP, CONFFILE);
+      cfile = fopen (cbuf, RMODE);  /* TRy that one */
+   }
+   if (cfile == NULL)               /* Still no good? */
+      cfile = fopen (CONFFILE, RMODE); /* OK, try current dir */
+   if (cfile == NULL)
+      return;                       /* Give up */
+
+/* Now process the conffile */
+
+   while (fgets (cbuf, sizeof(cbuf) - 1, cfile))  /* Keep reading! */
    {
       char *aptr;
-      *(cbuf + strlen(cbuf) - 1) = '\0';
-      parse_line (cbuf, tkn);
+      *(cbuf + strlen(cbuf) - 1) = '\0';  /* Ensure string terminated! */
+      parse_line (cbuf, tkn);             /* Parse the line */
       if (*tkn == NULL || *(tkn + 1) == NULL)
          continue;
-      recase (*tkn, 'U');
+      recase (*tkn, 'U');                 /* Uppercase the 1st token */
 
 #ifdef BROWSER
-      if (strcmp (*tkn, "BROWSER") == 0)
+      if (strcmp (*tkn, "BROWSER") == 0)  /* It's a browser specification */
       {
-         if (conf [BROWEXE])
-            continue;
-         cptr = *(tkn + 1);
-         if (*(tkn + 2) && **(tkn + 2))
+         if (cgi == -1) continue;         /* Command line mode forced! */
+         if (use_default) continue;       /* We'll be using the default one */
+         if (conf [BROWEXE])      /* But we already have a valid browser! */
+            continue;             /* So ignore the line */
+         cptr = *(tkn + 1);       /* Look at second token */
+         if (strcmp(cptr, "DEFAULT") == 0)
          {
-            if (strcmp (cptr, PLATFORM) != 0)
-               continue;
-            cptr = *(tkn + 2);
+            use_default = 1;      /* Note that default browser is to be used */
+            cgi = 'b';
+            continue;
          }
+         if ((UNIX && !MACOS && (strcmp (*(tkn + 1),   "LINUX") == 0)) ||
+             (UNIX && !MACOS && (strcmp (*(tkn + 1),    "UNIX") == 0)) ||
+             (MACOS          && (strcmp (*(tkn + 1),   "MACOS") == 0)) ||
+             (WINDOWS        && (strcmp (*(tkn + 1), "WINDOWS") == 0)))
+                cptr = *(tkn + 2);
+         else
+            continue;         /* Wrong platform! */
          if (*cptr == '$')
          {
             cptr = getenv(cptr + 1);
@@ -5059,7 +5126,7 @@ void read_conf ()
                continue;
          }
          if (strcmp (cptr, "NONE") == 0)
-            cgi = 0;
+            cgi = -1;
          else
             check_browser (cptr);
       }
@@ -5089,7 +5156,7 @@ void read_conf ()
          else if (strcmp (cptr, "COMPACT") == 0)
             handle_token ('c', COMPACT, aptr, 0, &compress);
          else if (strcmp (cptr, "COMMANDS") == 0)
-            handle_token ('p', COMMANDS, aptr, 2000, NULL);
+            handle_token ('p', HISTORY, aptr, 2000, NULL);
          else if (strcmp (cptr, "WIDTH") == 0)
             handle_token ('p', PXWIDTH, aptr, -500, NULL);
       }
@@ -5182,20 +5249,17 @@ void read_conf ()
 
 /* Now set default values for anything still missing. */
 
-   if (conf [BROWEXE] == NULL)
+#ifdef BROWSER
+   if (use_default)
+      store_conf (BROWEXE, default_browser);
+   else if (conf [BROWEXE] == NULL)
    {
       char *cptr;
       if ((cptr = getenv ("BROWSER")) != NULL)
          store_conf (BROWEXE, cptr);
       else
-#ifdef __MACH__
-         store_conf (BROWEXE, "/usr/bin/open");
-#else
-         store_conf (BROWEXE, "/usr/bin/xdg-open");
-#endif
+         store_conf (BROWEXE, default_browser);
    }
-
-#ifdef BROWSER
    if (conf [BG] == NULL)
       store_conf (BG, "#d0e0ff");
    if (conf [FG] == NULL)
@@ -5208,8 +5272,8 @@ void read_conf ()
       store_conf (SURROUND, "#222222");
    if (conf [BUTTON] == NULL)
       store_conf (BUTTON, "Y");
-   if (conf [COMMANDS] == NULL || atoi (conf [COMMANDS]) <= 0)
-      store_conf (COMMANDS, "200");
+   if (conf [HISTORY] == NULL || atoi (conf [HISTORY]) <= 0)
+      store_conf (HISTORY, "200");
    if (conf [PXWIDTH] == NULL || atoi (conf [PXWIDTH]) <= 500)
       store_conf (PXWIDTH, "700");
 #endif /* BROWSER */
@@ -5547,7 +5611,7 @@ char **argv;
    
    prog = *argv;
 #if defined(BROWSER)
-   cgi = getenv("DISPLAY") ? 'b' : 0;
+   cgi = getenv("DISPLAY") ? 'b' : -1;
 #endif
    if (Linlen == 0) Linlen = 32767;
    if (Screen == 0) Screen = 32767;
@@ -5601,7 +5665,7 @@ char **argv;
          else if (oc == '1' || oc == 'y') justify = 1;
          else justify = 1 - justify;
          store_conf (JUSTIFY, justify ? "Y" : "N");
-         cgi = 0;
+         cgi = -1;
          continue;
       }
       else if (*kwrd == 'b')
@@ -5667,7 +5731,7 @@ char **argv;
 #ifdef SLOW
       else if (*kwrd == 'o')
       {
-         cgi = 0;
+         cgi = -1;
          if (oc)
          {
             cps = (atoi (opt)) / 10;
@@ -5702,7 +5766,7 @@ char **argv;
          if (oc) check_browser (opt);
       }
       else if (*kwrd == 'C')
-         cgi = 0;
+         cgi = -1;
 #endif /* BROWSER */
       else if (*kwrd == 'h')
       {
@@ -5742,7 +5806,7 @@ char **argv;
       }
       else if (*kwrd == 's')
       {
-         cgi = 0;
+         cgi = -1;
          val = strtol (opt, &opt, 10);
          if (val == 0) val = 32767;
          if (val >= 16 && val <= 32767)  
@@ -5821,8 +5885,7 @@ char **argv;
    *prompt_ptr = '\0';
 #endif
 #ifdef SLOW
-   if (cgi)
-      cps = 0;
+   if (cgi > 0) cps = 0;
    if (cps)
 #  if defined(MSDOS) || defined(_WIN32)
       cps = 1000/cps;
@@ -5830,7 +5893,7 @@ char **argv;
       cps = 1000000/cps;
 #  endif
 #endif /* SLOW */
-   if (cgi) 
+   if (cgi > 0) 
       Margin = 0;
    if (mainseed == 0)
       time ((time_t *) &mainseed);
@@ -5854,6 +5917,7 @@ char **argv;
       stylehint_Justification, stylehint_just_LeftFlush);
    glk_set_style (style_Normal);
 #endif
+   if (cgi == -1) cgi = 0;
    value [THERE] = value [HERE] = FLOC;
 
    if (cgi < 'x' && !new_game)
@@ -7310,7 +7374,7 @@ void send_page(void)
 #ifdef DEBUG
    printf ("=== Entering %s\n", "send_page"); 
 #endif /* DEBUG */
-   sprintf (mlimit, "moveLimit = %d;\n", atoi (conf [COMMANDS]));      
+   sprintf (mlimit, "moveLimit = %d;\n", atoi (conf [HISTORY]));      
    sprintf (compact, "compact = %d;\n", *conf[COMPACT] == 'Y' ? 1 : 0);
    sprintf (tdlen, "%d", atoi (conf [PXWIDTH]) - 20);      
    sprintf (inplen, "%d", 
