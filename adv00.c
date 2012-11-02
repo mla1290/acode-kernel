@@ -1,7 +1,8 @@
 /* adv00.c: A-code kernel - copyleft Mike Arnautov 1990-2012.
  */
-#define KERNEL_VERSION "12.39, 05 October 2012"
+#define KERNEL_VERSION "12.40, 02 November 2012"
 /*
+ * 02 Nov 12   MLA        Bug: fixed NBSP handling in centred text.
  * 05 Oct 12   MLA        bug: always honour the right margin!
  *                        Bug: fixed conffile location code to work on Windows.
  *                        Bug: fixed Windows home path.
@@ -322,7 +323,7 @@
 #  define UNIX 0
 #  define MACOS 0
 #else
-#  if defined(_MACH_)
+#  if defined(__MACH__)
 #     define WINDOWS 0
 #     define UNIX 1
 #     define MACOS 1
@@ -1604,20 +1605,20 @@ void showchar (char c, char target)
 /*====================================================================*/
 /* Output character filter to do special things.
  */
-char *ofilter (char *iptr)
+char *ofilter (char *iptr, int html)
 {
    if (*iptr == TAG_START)
    {
-      if (!cgi) while (*iptr && *iptr != TAG_END) iptr++;
+      if (!html) while (*iptr && *iptr != TAG_END) iptr++;
       else oputc ('<');
    }
-   else if (!cgi) oputc (*iptr);
-   else if (*iptr == '>' || *iptr == '<') 
+   else if (!html) oputc (*iptr);
+   else if (*iptr == '>' || *iptr == '<')
       oputs (*iptr == '<' ? "&lt;" : "&gt;");
    else if (*iptr == TAG_END) oputc ('>');
    else 
    {
-      if (*iptr == ' ' && *(iptr + 1) == ' ' && cgi) oputs ("&nbsp;");
+      if (*iptr == ' ' && *(iptr + 1) == ' ' && html) oputs ("&nbsp;");
       oputc(*iptr);
    }
    return (iptr);
@@ -1625,7 +1626,7 @@ char *ofilter (char *iptr)
 /*====================================================================*/
 /* Centers lines individually.
  */
-char *centre_text_lines (char *iptr)
+char *centre_text_lines (char *iptr, int html)
 {
    char *jptr;
 
@@ -1636,15 +1637,20 @@ char *centre_text_lines (char *iptr)
       jptr = iptr;
       while (* iptr && *iptr != '\n' && *iptr != BLOCK_END)
          iptr++;
-      if (!cgi)
+      if (!html)
       {
          int l = (Maxlen - (iptr - jptr)) / 2;
-         while (l--) oputc (NBSP);
+         while (l--) oputc (' ');
       }
-      while (jptr < iptr) ofilter (jptr++);
+      while (jptr < iptr)
+      {
+         if (*jptr == NBSP) oputs(html ? "&nbsp;" : " ");
+         else ofilter (jptr, html);
+         jptr++;
+      }
       if (*iptr != '\n')
          break;
-      oputs (cgi ? "<br>\n" : "\n");
+      oputs (html ? "<br>\n" : "\n");
    }
    return (iptr);
 }
@@ -1654,7 +1660,7 @@ char *centre_text_lines (char *iptr)
  * remaining line length and centers all lines as if they had that length,
  * thereby actually centering the block as a whole.
  */
-char *centre_block (char *iptr)
+char *centre_block (char *iptr, int html)
 {
    int lead = 4096;
    int mxl = 0;
@@ -1678,20 +1684,20 @@ char *centre_block (char *iptr)
    while (1)
    {
       for (i = 0; i < lead; i++) iptr++;
-      if (!cgi) for (i = 0; i < offset; i++) oputc (' ');
+      if (!html) for (i = 0; i < offset; i++) oputc (' ');
       while (*iptr != '\n' && *iptr != BLOCK_END)
       {
-         if (*iptr == NBSP) oputc (' ');
-         else iptr = ofilter (iptr);
+         if (*iptr == NBSP) oputs (html ? "&nbsp;" : " ");
+         else iptr = ofilter (iptr, html);
          iptr++;
       }
       if (*iptr != BLOCK_END)
-         oputs (cgi && type != QUOTE_START ? "<br>\n" : "\n");
+         oputs (html && type != QUOTE_START ? "<br>\n" : "\n");
       else
          break;
       iptr++;
    }
-   if (!cgi) oputc ('\n');
+   if (!html) oputc ('\n');
    
    return (*iptr == BLOCK_END ? iptr + 1 : iptr);
 }
@@ -1753,7 +1759,7 @@ void format_buffer (int terminate, int html)
          case CENTRE_START:
 #ifdef GLK
             glk_set_style (style_Preformatted);
-            iptr = centre_block (iptr);
+            iptr = centre_block (iptr, 0);
             glk_set_style (style_Normal);
 #else
             if (html)
@@ -1764,9 +1770,9 @@ void format_buffer (int terminate, int html)
             }
             type = *iptr;
             if (type == CENTRE_START)
-               iptr = centre_text_lines (iptr);
+               iptr = centre_text_lines (iptr, html);
             else
-               iptr = centre_block (iptr);
+               iptr = centre_block (iptr, html);
             if (html)
             {           
                if (type == QUOTE_START) oputs ("</pre>");
@@ -1786,7 +1792,7 @@ void format_buffer (int terminate, int html)
          case BLOCK_END:    /* Should not happen at all! */
             break;          /* Ignore */
          default:
-            iptr = ofilter (iptr);
+            iptr = ofilter (iptr, html);
             break;
       }
       if (*iptr == '\0') break;
@@ -2479,19 +2485,9 @@ char text_char;
       upcase = 1;
 #endif /* STYLE >= 11 */
 
-   if (cgi && (text_char == '<' || text_char == '>'))
-   {
-      *lptr++ = '&';
-      *lptr++ = (text_char == '<') ? 'l' : 'g';
-      *lptr++ = 't';
-      *lptr = ';';
-      text_len += 4;
-   }
-   else
-   {
-      text_len++;
-      *lptr = text_char;
-   }
+   text_len++;
+   *lptr = text_char;
+
 #ifdef DWARVEN
    if (value [DWARVEN] || extra_dwarvish)
       shift_up (lptr);
@@ -7039,10 +7035,6 @@ char *string;
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <netdb.h>
-
-#if defined (unix) || defined(__MACH__)
-#  define SEP '/'
-#endif /* unix */
 
 #ifdef DEBUG
 #  define TIMELIMIT 300
