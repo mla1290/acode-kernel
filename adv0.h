@@ -38,9 +38,9 @@ extern void outchar (char text_char);
 #ifdef READLINE
    extern char *outline 
       (char *addr, int char_count, int break_count, int fill, int terminate);
-#else
+#else /* ! READLINE */
    extern char *outline (char *addr, int char_count, int break_count, int fill);
-#endif
+#endif /* READLINE */
 extern void finita (void);
 extern int irand (int less_then);
 extern int have (int l1, int l2, int l3);
@@ -66,8 +66,17 @@ extern void http_init (void);
 extern void (*procs[])(void);
 extern void pcall (int);
 extern int typed (char *);
-extern void svar(int type, int *var);
-#else
+extern void svar (int, int *);
+extern void browser_write (char *);
+extern int browser_read (char *, int);
+extern void invoke_browser (char *, int);
+extern char *make_header (char *);
+extern void send_null (void);
+extern void send_page (void);
+#ifdef __WIN32
+extern void my_usleep (int);
+#endif /* __WIN32 */
+#else /* ! __STDC__ */
 extern void say ();
 extern int query ();
 extern int special ();
@@ -108,11 +117,20 @@ extern void show_data();
 extern int http_in ();
 extern int http_out ();
 extern void http_init ();
-extern void (*procs[])();
-extern void pcall();
-extern int typed();
-extern void svar();
-#endif
+extern void (*procs[]) ();
+extern void pcall ();
+extern int typed ();
+extern void svar ();
+extern void browser_write ();
+extern int browser_read ();
+extern void invoke_browser ();
+extern char *make_header ();
+extern void send_null ();
+extern void send_page ();
+#ifdef __WIN32
+extern void my_usleep ();
+#endif /* __WIN32 */
+#endif /* __STDC__ */
 extern jmp_buf loop_back;
 extern int *value;
 extern int *location;
@@ -124,4 +142,4 @@ extern short *varbits;
 #include "adv1.h"
 #ifdef ALL
 extern int value_all;
-#endif
+#endif /* ALL */

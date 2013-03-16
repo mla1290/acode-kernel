@@ -1,5 +1,14 @@
-/* adv01.c: A-code kernel - copyleft Mike Arnautov 1990-2012.
+/* adv01.c: A-code kernel - copyleft Mike Arnautov 1990-2013.
  *
+ * 10 Mar 13   MLA             Added MSDOS overrides.
+ * 07 Mar 13   MLA             Bug: If FILE defined, undef it!
+ * 03 Mar 13   MLA             bug: include arpa/inet.h
+ *                             Bug: don't list game in progres on Windows!
+ * 11 Nov 12   MLA             Bug: Fixed UNUX (sic.) typo!
+ * 08 Nov 12   MLA             Use 127.0.0.1 instead of INADDR_ANY.
+ * 03 Nov 12   MLA             Timout handling now done through conf[].
+ * 14 Dec 11   MLA             All sockets code now in adv01, due
+ *                             to Windows version now using them too.
  * 01 Apr 10   MLA             Added make_copy functionality.
  * 21 Jul 09   MLA             Allow for GNU automake builds.
  * 13 Feb 09   MLA             Don't need process_saved for styles < 11.
@@ -8,8 +17,49 @@
  * 14 May 07   MLA             Split off from adv00.c (M$ sucks!)
  */
  
+#ifdef FILE
+#  undef FILE
+#endif
+
+#ifdef MSDOS
+#  ifndef CONSOLE
+#     define CONSOLE
+#  endif
+#  ifndef NO_READLINE
+#     define NO_READLINE
+#  endif
+#  ifndef NO_SLOW
+#     define NO_SLOW
+#  endif
+#endif
+
+#if defined(CONSOLE)&&defined(BROWSER)
+#  undef BROWSER
+#endif
+#if !defined(MSDOS)&&(defined(WIN32)||defined(_WIN32)||defined(__WIN32)||defined (_WIN32_)||defined(__WIN32__))
+#  define WINDOWS 1
+#  define UNIX 0
+#  define MACOS 0
+#else
+#  define WINDOWS 0
+#  define UNIX 1
+#  define MACOS 0
+#  if defined(_MACH_)
+#     undef MACOS
+#     define MACOS 1
+#  endif
+#endif
+
 #if (defined(__cplusplus) || defined(_MSC_EXTENSIONS)) && !defined(__STDC__)
 #  define __STDC__ 1
+#endif
+
+#ifdef CONSOLE
+#  ifdef BROWSER
+#     undef BROWSER
+#  endif
+#else
+#  define BROWSER
 #endif
 
 #if defined(HAVE_CONFIG_H)
@@ -21,82 +71,70 @@
 #        include <strings.h>
 #     endif /* HAVE_STRINGS_H */
 #  endif /* HAVE_STRING_H */
+#  if defined(HAVE_STDLIB_H)
+#     include <stdlib.h>
+#  endif /* HAVE_STDLIB_H */
+#  if defined (HAVE_SYS_STAT_H)
+#     include <sys/stat.h>
+#  endif /* HAVE_SYS_STAT_H */
+#  if defined (HAVE_SYS_TYPES_H)
+#     include <sys/types.h>
+#  endif /* HAVE_SYS_TYPES_H */
+#  if defined(HAVE_UNISTD_H)
+#     include <unistd.h>
+#  else /* ! HAVE_UNISTD_H */
+#     if WINDOWS
+#        define unlink _unlink
+#     else /* !WINDOWS */
+         int unlink(char *);
+#     endif /* WINDOWS */
+#  endif /* HAVE_UNISTD_H */
 #else /* ! HAVE_CONFIG_H */
-#  include <stdio.h>
+#  include <string.h>
+#  include <stdlib.h>
+#  if defined(HAVE_UNISTD_H)
+#     include <unistd.h>
+#  else
+#     if WINDOWS
+#        define unlink _unlink
+#     else /* !WINDOWS */
+         int unlink(char *);
+#     endif /* WINDOWS */
+#  endif
+#  include <sys/types.h>
 #  include <sys/stat.h>
+#  include <fcntl.h>
 #endif /* HAVE_CONFIG_H */
-#include <string.h>
+#include <time.h>
 
-#ifdef HTTP
-#  undef GLK
-#  undef READLINE
-   int lsock;
-   int wsock;
-#endif
-
+#include "adv0.h"
 #define ADV01
 #include "adv1.h"
 
-#ifdef __STDC__
-extern void outchar (int);
-#else
-extern void outchar ();
-#endif
-
 #define PRINTF(X)    { char *ptr = X; while (*ptr) outchar(*ptr++); }
 
-#ifdef _WIN32
+
+#if WINDOWS
 #  include <windows.h>
-#  ifdef HTTP
-#     include <winsock.h>
+#endif /* WINDOWS */
+
+#ifdef BROWSER
+#  if WINDOWS
+#     include <winsock2.h>
+#     include <ws2tcpip.h>
 #     define sclose closesocket
-#  endif
-#else
-#  define sclose close
+#  else /* !WINDOWS */
+#    include <sys/socket.h>
+#    include <netinet/in.h>
+#    include <arpa/inet.h>
+#    include <netdb.h>
+#    define sclose close
+#  endif /* WINDOWS */
 #endif
-
-#ifdef GLK
-#ifdef _WIN32
-
-char* arglist[1] = { "" };
-extern char **argv;
-extern int argc;
-
-int winglk_startup_code(const char* cmdline)
-{
-   winglk_app_set_name(GAME_NAME);
-   winglk_window_set_title(GAME_ID);
-   argc = 1;
-   argv = arglist;
-   return 1;
-}
-/* Entry point for all Glk applications */
-int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow)
-{
-  /* Attempt to initialise Glk */
-  if (InitGlk(0x00000601) == 0)
-    exit(0);
-
-  /* Call the Windows specific initialization routine */
-  if (winglk_startup_code(lpCmdLine) != 0)
-  {
-/* Run the application */
-    glk_main();
-
-/* There is no return from this routine */
-    glk_exit();
-  }
-
-  return 0;
-}
-#endif /* _WIN32 */
-#endif /* GLK */
 
 /*===========================================================*/
 
-#if (defined(MSDOS) || defined (_WIN32)) && !defined(DJGPP)
-
-#if !defined(NO_SLOW) && !defined(READLINE) && !defined(GLK)
+#if !defined(NO_SLOW) && WINDOWS
 #ifdef __STDC__
 void my_usleep (int delay)
 #else
@@ -104,30 +142,21 @@ void my_usleep (delay)
 int delay;
 #endif
 { SleepEx(delay, 0); return; }
-#endif /* SLOW */
-#endif /* MSDOS || WIN32 || DJGPP */
+#endif /* !NO_SLOW && WINDOWS */
 
 /*===========================================================*/
 
 #if STYLE > 11
 
-#if defined(unix) || defined(__CYGWIN__) || defined(__MACH__)
-#  define SEP '/'
+#if WINDOWS
+#  define SEP '\\'
 #else
-#  if defined(MSDOS) || defined(_WIN32)
-#     define SEP '\\'
-#  else
-#     ifdef __50SERIES
-#        define SEP '>'
-#     else
-#        define SEP '?'
-#     endif
-#  endif
+#  define SEP '/'
 #endif
 
-#if (!defined(MSDOS) && !defined(_WIN32)) || defined (DJGPP)
+#if !WINDOWS
 #include <dirent.h>
-#endif
+#endif /* !WINDOWS */
 #include <stdio.h>
 
 #ifdef __STDC__
@@ -170,54 +199,60 @@ char *name;
 {
    int cnt = 0;
    char buf[64];
-#if (defined(MSDOS) || defined(_WIN32)) && !defined(DJGPP)
+#if WINDOWS
    WIN32_FIND_DATA wfd;
    HANDLE hFind; 
-#else
+#else /* !WINDOWS */
    DIR *dp;
    struct dirent *de;
-#endif
+#endif /* WINDOWS */
    char *sfx;
    *(buf + 63) = '\0';
 
-#if (defined(MSDOS) || defined(_WIN32)) && !defined(DJGPP)
+#if WINDOWS
    if (action < 1 && strlen (name) > 57)
       return (0);
    sprintf (buf, "%s\\*.adv", action >= 0 ? "." : name);
    if ((hFind = FindFirstFile (buf, &wfd)) == INVALID_HANDLE_VALUE)
-#else
+#else /* !WINDOWS */
    if ((dp = opendir(action >= 0 ? "." : name)) == NULL)
-#endif
+#endif /* WINDOWS */
       return (0);
 
    while (1)
    {
-#if (defined(MSDOS) || defined(_WIN32)) && !defined(DJGPP)
+#if WINDOWS
       if (cnt) 
       {
          if (FindNextFile(hFind, &wfd) == 0)
             break;
       }
       strncpy(buf, wfd.cFileName, 63);
-#else
+      if (*buf == '.' || *buf == '_' ||
+         strcmp (sfx = buf + strlen(buf) - 4, ".adv") != 0)
+            continue;
+#else /* !WINDOWS */
       if ((de = readdir(dp)) == NULL)
          break;
       strncpy (buf, de->d_name, 63);
-#endif
-      if (*buf != '.' &&
-         strcmp (sfx = buf + strlen(buf) - 4, ".adv") == 0)
+      if (*buf == '.' ||
+         strcmp (sfx = buf + strlen(buf) - 4, ".adv") != 0)
+            continue;
+#endif /* WINDOWS */
+      if (action < 0)
+      {
+         struct stat stat_buf;
+         if (stat (buf, &stat_buf) == -1)
+         {
+            *sfx = '\0';
+            make_copy (name, buf, "adv");
+            make_copy (name, buf, "adh");
+         }
+      }
+      else 
       {
          *sfx = '\0';
-         if (action < 0)
-         {
-            struct stat stat_buf;
-            if (stat (buf, &stat_buf) == -1)
-            {
-               make_copy (name, buf, "adv");
-               make_copy (name, buf, "adh");
-            }
-         }
-         else if (action > 0)
+         if (action > 0)
          {
             if (cnt) PRINTF (", ")
             PRINTF (buf)
@@ -227,11 +262,11 @@ char *name;
          cnt++;
       }
    }
-#if (defined(MSDOS) || defined(_WIN32)) && !defined(DJGPP)
+#if WINDOWS
       FindClose(hFind);
-#else
+#else /* !WINDOWS */
       closedir (dp);
-#endif
+#endif /* WINDOWS */
 
    if (cnt == 0) return (0);
    if (action > 0) PRINTF (".\n");
@@ -240,88 +275,309 @@ char *name;
 
 #endif /* STYLE */
 
-/**********************************************************************/
+/*====================================================================*/
+#ifdef BROWSER
 
-char *cftext [] = {
-   "##################### Config file for A-code games ####################\n",
-   "#\n",
-   "# Values as initally supplied are the ones the game will default to\n",
-   "# in the absence of this file. Where equivalent command line options\n",
-   "# exist, they override values specified by this config file.\n",
-   "#\n",
-   "# All browser-related settings are ignored by games built for console\n",
-   "# operation only.\n",
-   "#\n",
-   "#######################################################################\n",
-   "#\n",
-   "# Browsers will be checked for in the order in which they are listed,\n",
-   "# until one is located. Browsers can be specified by their full pathname,\n",
-   "# or just by the executable name. In the latter case they will be\n",
-   "# searched for using the search path as specified by the PATH variable.\n",
-   "# If the BROWSER keyword is followed by either LINUX or MACOS, then the\n",
-   "# line applies only on the respective operating system.\n",
-   "#\n",
-   "   BROWSER $BROWSER              # Environment variables get evaluated\n",
-   "   BROWSER LINUX      xdg-open   # This starts default browser on Linux\n",
-   "   BROWSER MACOS /usr/bin/open   # This starts Safari on MacOS\n",
-   "   BROWSER konqueror             # KDE native browser\n",
-   "   BROWSER epiphany              # Gnome native browser\n",
-   "   BROWSER firefox\n",
-   "   BROWSER opera\n",
-   "   BROWSER seamonkey\n",
-   "   BROWSER NONE                  # Assume console mode\n",
-   "#\n",
-   "# Browser display colours can be specified by names or by hex RGB codes;\n",
-   "# if an RGB code is is used, it must be prefixed with \\#, e.g. \\#d0e0ff.\n",
-   "# And yes, our American friends can use COLOR, if they like!\n",
-   "#\n",
-   "   COLOUR BACKGROUND  \\#d0e0ff   # Pale blue is the default background\n",
-   "   COLOUR TEXT           black   # Default output text colour\n",
-   "   COLOUR PROMPT           red   # Make prompt lines red\n",
-   "   COLOUR SURROUND    \\#222222   # Dark grey default for surround\n",
-   "#\n",
-   "# Other things to do with browser display. Game commands can be always\n",
-   "# submitted simply by pressing the <ENTER> (or <RETURN>) key, but setting\n",
-   "# BUTTON to YES, will also show a submit button for those who must have it.\n",
-   "# The COMPACT setting allows the settings of None, Some, All and Default.\n",
-   "# suppressing respectively none, some or all blank lines, or accepting\n",
-   "# the game's default. The COMMANDS value shows how many commands and\n",
-   "# responses the browser display should retain.\n",
-   "#\n",
-   "   SHOW BUTTON   Yes             # Show the submit button\n",
-   "   SHOW COMPACT  Default         # Accept whatever the game defaults to\n",
-   "   SHOW COMMANDS 200             # Show up to 200 last commands and responses\n",
-   "   SHOW WIDTH    700             # Set display area width to 700 pixels\n",
-   "#\n",
-   "# The log file section is applicable both to the browser and the console\n",
-   "# modes. Log file can be OFF (or NO, or NONE) or WRITE or APPEND, the\n",
-   "# last two being optionally followed by name or pathname; this may indicate\n",
-   "# either a specific logfile or a directory in which the logfile will be\n",
-   "# placed. The default logfile name is <game_name>.log and its default\n",
-   "# location is ~/acode/<game_name>\n",
-   "#\n",
-   "   LOGFILE NONE                  # No logfile\n",
-   "#\n",
-   "# Finally for the console mode only, some screen layout requirements.\n",
-   "# For the JUSTIFY attribute, the possible values are Yes, No and Default.\n",
-   "#\n",
-   "   LAYOUT JUSTIFY DEFAULT        # Accept game's default\n",
-   "   LAYOUT MARGIN        1        # Left and right text margin\n",
-   "   LAYOUT WIDTH        80        # Console window width in columns\n",
-   "   LAYOUT HEIGHT       24        # Console window height in lines\n",
-   "#\n",
-   "############################# End of file #############################\n",
-   ""
-};
+int lsock = 0;
+int wsock = 0;
+int port = 1978;
 
-void make_conf (void)
+char *utf8 = "20 21!22\"23#25%26&27'28(29)2A*2B+2C,2F/3A:3B;3D=3F?40@5B[5D]";
+
+/*====================================================================*/
+/* Sets up listener socket lsock for browser operation.
+ */
+void set_up_listener (void)
 {
-   char **cfptr = cftext;
-   FILE *cfile = fopen ("acode.conf", "wb");
-   if (!cfile) return;
-   while (**cfptr) fputs (*cfptr++, cfile);
-   fclose (cfile);  
+   int one = 1;              /* Needed by setsockopt */
+   struct protoent *pf;      /* Protocol family pointer */
+   struct sockaddr_in ladr;  /* Local server address structure */
+   int pcnt = 0;
+
+   memset ((char *)&ladr, 0, sizeof(ladr));
+   ladr.sin_family = AF_INET;
+   ladr.sin_addr.s_addr = inet_addr("127.0.0.1");
+
+   if ((pf = getprotobyname ("tcp")) == NULL)
+   {
+      fprintf (stderr, "Failed to find protocol TCP!\n");
+      exit (-1);
+   }
+
+   if ((lsock = socket (AF_INET, SOCK_STREAM, pf->p_proto)) < 0)
+   {
+      perror("");
+      fprintf (stderr, "Failed to create listennig socket!\n");
+      exit (-1);
+   }
+
+   setsockopt(lsock, SOL_SOCKET, SO_REUSEADDR, 
+      (void *)&one, sizeof(int));
+
+   while (1)
+   {
+      ladr.sin_port = htons (port);
+      if (bind (lsock, (struct sockaddr *)&ladr, sizeof(ladr)) == 0)
+         break;
+      port++;
+      pcnt++;
+      if (pcnt == 100)
+      {       
+         fprintf (stderr,"Failed to bind listening socket!\n");
+         exit (-1);
+      }
+   }
+
+   if (listen (lsock, 10) < 0)
+   {
+      fprintf (stderr,"Failed to set up listener!\n");
+      exit (-1);
+   }
 }
+/*====================================================================*/
+/* Send the assembled response to the browser in 1KB chunks. (Possibly
+ * unnecessary to split it like that these days.)
+ */
+void browser_write (char *cptr)
+{
+   int size;
+   int len = 1024;
+   
+#ifdef DEBUG
+   printf ("=== Entering %s\n", "browser_write"); 
+#endif /* DEBUG */
+   cptr = make_header (cptr);
+   size = strlen (cptr);
+   while (size > 0)
+   {
+      if (size < len)
+         len = size;
+      send (wsock, cptr, len, 0);
+      cptr += len;
+      size -= len;
+   }
+   sclose (wsock);
+   wsock = 0;
+#ifdef DEBUG
+   printf ("=== Exiting %s\n", "browser_write"); 
+#endif /* DEBUG */
+}
+/*====================================================================*/
+/* Wait for the browser to call and either respond (to a keep-alive
+ * request), or extract and return the player's command.
+ */
+int browser_read (char *command, int time_limit)
+{
+   int len;
+   char combuf[4096];
+   char *cptr = combuf;
+   char *aptr;
+   int retval = 'N';
+   int lchar = ' ';
+   int adrlen;               /* Length of socket address */
+   struct sockaddr_in radr;  /* Remote client address structure */
+   fd_set screen;
+   struct timeval timeout;
+   int ready;
+   
+#ifdef DEBUG
+   printf ("=== Entering %s\n", "browser_read"); 
+#endif /* DEBUG */
+   FD_ZERO(&screen);
+   FD_SET(lsock, &screen);
+   while (1)
+   {
+      timeout.tv_sec = time_limit;
+      timeout.tv_usec = 0;
+      ready = select (FD_SETSIZE, &screen,
+        (fd_set *) 0, (fd_set *) 0, &timeout);
+      if (!ready)
+      {
+        fprintf (stderr, "*** No response from browser! ***\n");
+        exit (1);
+      }
+      adrlen = sizeof(radr);
+      if (wsock)
+      {
+         sclose (wsock);
+         wsock = 0;
+      }
+      if ((wsock = accept (lsock, (struct sockaddr *)&radr, 
+                                  (socklen_t *)&adrlen)) < 0)
+      {
+         fprintf(stderr, "Failed to accept incoming call!\n");
+         exit (-1);
+      }
+      
+      cptr = combuf;
+      while (1)
+      {
+         len = recv (wsock, cptr, sizeof(combuf) - 1, 0);
+         *(cptr + len) = '\0';
+         aptr = cptr + 1;
+         lchar = *cptr;
+         cptr += len;
+         while (aptr < cptr)
+         {
+            if (lchar == '\n' && *aptr == '\n')
+            {
+               len = 0;
+               break;
+            }
+            if (*aptr != '\r')
+               lchar = *aptr;
+            aptr++;
+         }
+         if (len == 0)
+            break;
+      }
+      if (strstr (combuf, "IE 5.0"))
+      {
+         fprintf (stderr,
+            "*ERROR* Sorry, this setup does not work with IE 5.0.\n");
+         exit (1);
+      }
+      if (strncmp (combuf, "GET", 3) != 0)
+      {
+         sclose (wsock);
+         continue;
+      }         
+      if ((cptr = strstr (combuf, "status=")) != NULL)
+      {
+         aptr = cptr + 7;
+         if (*aptr == '0' && *(aptr + 1) == 'x')
+         {
+            aptr += 2;
+            if (*aptr == 'R' || *aptr == 'S')
+               retval = *aptr;
+            else
+            {
+               send_null ();
+               continue;
+            }
+         }
+         else
+         {
+            while (*aptr >= '0' && *aptr <= '9')
+               aptr++;
+            aptr++;
+         }
+      }
+      if (strstr (combuf, "favicon") != NULL)
+      {
+         send (wsock, "HTTP/1.0 404 Not found\nContent-Length: 0\n\n", 42, 0);
+         sclose (wsock);
+         continue;
+      }
+      break;
+   }
+   if (command)
+   {
+      cptr = command;
+      while (*aptr != ' ' && *aptr != '\n')
+      {
+         if (*aptr == '%')
+         {
+            char *uptr = utf8;
+            while (*uptr)
+            {
+               if (*uptr == *(aptr + 1) && *(uptr + 1) == *(aptr + 2))
+               {
+                  *cptr++ = *(uptr + 2);
+                  aptr += 3;
+                  break;
+               }
+               uptr += 3;
+            }
+            if (*uptr)
+               continue;
+         }
+         *cptr++ = *aptr;
+         aptr++;
+      }
+      *cptr++ = '\n';
+      *cptr = '\0';
+   }
+#ifdef DEBUG
+   printf ("=== Exiting %s: '%s'\n", "browser_read", command); 
+#endif /* DEBUG */
+   return (retval);
+}
+/*====================================================================*/
+/* Invokes the specified browser.
+ */
+void invoke_browser (char *exe, int timeout)
+{
+   char urlbuf [256];
+   int rsp = 0;
+   int tm = time(NULL) % 10000;
 
+#if WINDOWS
+   STARTUPINFO si;
+   PROCESS_INFORMATION pi;
+   WSADATA wsaData;
+   WSAStartup(0x0101, &wsaData);
+#endif /* WINDOWS */
+
+#ifdef DEBUG
+   printf ("=== Entering %s\n", "invoke_browser"); 
+#endif /* DEBUG */
+
+   set_up_listener ();
+
+#if WINDOWS
+   sprintf (urlbuf, "%s http://localhost:%d/%d/", exe, port, tm);
+   ZeroMemory( &si, sizeof(si) );
+   si.cb = sizeof(si);
+   ZeroMemory( &pi, sizeof(pi) );
+   if (!CreateProcess(NULL, urlbuf, NULL, NULL, 0, 0, NULL, NULL, &si, &pi))
+   {
+      printf ("*ERROR* Failed to kick off '%s'!\n", urlbuf);
+      exit (-1);
+   }
+#else /* !WINDOWS */
+   if (isatty (1)) 
+      fputs ("Invoking browser...\n", stderr);
+   
+   if (fork () == 0)        /* I.e. this is the child process */
+   {
+      int fd;
+      sclose (lsock);
+      lsock = 0;
+      sprintf (urlbuf, "http://localhost:%d/%d/", port, tm);
+      fflush(stdout);
+      close (0); close (1); fd = dup(2); close(2);
+      execl (exe, exe, urlbuf, (char *)NULL);
+      dup(fd); dup (fd);
+      printf ("*ERROR* Failed to exec %s!\n", exe);
+      exit (1);
+   }
+
+#if !defined(DEBUG) && !defined(DIRECT)
+/* Daemonize, if necessary */
+   if (getppid() != 1)
+   {
+      int i;
+      if (isatty (1))
+         fputs ("Daemonising game server...\n", stderr);
+      if (fork() > 0) exit (0);  /* Parent process exits */
+      setsid ();                 /* New process group */
+      close (0); close (1); close (2); /* Close stdin, stdout, stderr */
+      i = open ("/dev/null", O_RDWR); dup (i); dup (i); /* Reopen them */
+   }
+#endif /* ! DEBUG && ! DIRECT*/
+#endif /* WINDOWS */
+
+   rsp = browser_read (NULL, timeout); /* Accept initial call (page request?) */
+   if (rsp != 'R')
+   {
+      if (rsp == 'N') send_page();          /* Send the initial page */
+      while ((rsp = browser_read (NULL, timeout)) == 'N')
+        send_null();
+   }
+#ifdef DEBUG
+   printf ("=== Exiting %s\n", "invoke_browser"); 
+#endif /* DEBUG */
+}
+#endif /* BROWSER */
 /**********************************************************************/
-
