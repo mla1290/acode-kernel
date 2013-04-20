@@ -1,5 +1,6 @@
 /* adv01.c: A-code kernel - copyleft Mike Arnautov 1990-2013.
  *
+ * 04 Apr 13   MLA             BUG: Don't loop in MS code when no saved game.
  * 10 Mar 13   MLA             Added MSDOS overrides.
  * 07 Mar 13   MLA             Bug: If FILE defined, undef it!
  * 03 Mar 13   MLA             bug: include arpa/inet.h
@@ -197,12 +198,13 @@ int action;
 char *name;
 #endif
 {
-   int cnt = 0;
    char buf[64];
 #if WINDOWS
+   int cnt = -1;
    WIN32_FIND_DATA wfd;
    HANDLE hFind; 
 #else /* !WINDOWS */
+   int cnt = 0;
    DIR *dp;
    struct dirent *de;
 #endif /* WINDOWS */
@@ -222,11 +224,13 @@ char *name;
    while (1)
    {
 #if WINDOWS
-      if (cnt) 
+      if (cnt >= 0)
       {
          if (FindNextFile(hFind, &wfd) == 0)
-            break;
+         break;
       }
+      else
+         cnt = 0;
       strncpy(buf, wfd.cFileName, 63);
       if (*buf == '.' || *buf == '_' ||
          strcmp (sfx = buf + strlen(buf) - 4, ".adv") != 0)

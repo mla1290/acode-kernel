@@ -1,7 +1,11 @@
 /* adv00.c: A-code kernel - copyleft Mike Arnautov 1990-2013.
  */
-#define KERNEL_VERSION "12.51, 10 March 2013"
+#define KERNEL_VERSION "12.54, 20 April 2013"
 /*
+ * 20 Apr 13   MLA        BUG: Don't use break when parsing comline!
+ *                        Bug: unset CONTEXT on undo/redo.
+ *                        bug: don't say Oops! if starting a CGI game.
+ * 05 Apr 13   MLA        BUG: allow for readline() returning a null pointer!
  * 10 Mar 13   MLA        BUG: Use RMODE in try_db, not "r"!
  *                        Added MSDOS overrides.
  *                        DOS/Windows: return to original dir on normal exit.
@@ -2679,10 +2683,15 @@ int insize;
          putchar ('\r');
          rdl = readline (prompt_line);
          if (!compress) putchar ('\n');
-         memcpy (inbuf, rdl, insize);
-         add_history (rdl);
-         free (rdl);
-         *(inbuf + insize - 1) = 0;
+         if (rdl)
+         {
+            memcpy (inbuf, rdl, insize);
+            add_history (rdl);
+            free (rdl);
+            *(inbuf + insize - 1) = 0;
+         }
+         else
+            *inbuf = 0;
       }
    }
    if (log_file && cgi != 'b')
@@ -4070,7 +4079,7 @@ got_name:
             PRINTF ("\nAs you wish...\n");
 #endif /* ADVCONTEXT */
          }
-         else if (cgi > 'b' && (key == 999 || key == 997))
+         else if (cgi > 'x' && (key == 999 || key == 997))
          {
             if (key == 999)
                return (0);
@@ -5797,20 +5806,13 @@ char **argv;
       }
 #ifdef USEDB
       else if (*kwrd == 'd')
-      {
          dbs_dir = opt;
-         break;
-      }
 #endif /* USEDB */
       else if (*kwrd == 'c')
-      {
          com_name = opt;
-         break;
-      }
       else if (*kwrd == 'r')
       {
          if (*opt) dump_name = opt;
-         break;
       }
 #ifdef UNDO
       else if (*kwrd == 'u' && undo_def != -2)
@@ -6789,6 +6791,7 @@ void undo ()
       cnt = acnt;
 #endif
    bitmod (cnt > acnt ? 's' : 'c', UNDO_STAT, UNDO_TRIM);
+   value[ADVCONTEXT] = 0;
    memcpy (image, IMAGE, sizeof (IMAGE));
    return;
 }
@@ -6836,6 +6839,7 @@ void redo ()
    if (value [ARG2] == ALL)
       cnt = acnt;
 #endif
+   value[ADVCONTEXT] = 0;
    bitmod (cnt > acnt ? 's' : 'c', UNDO_STAT, UNDO_TRIM);
 }
 #endif /* UNDO */
