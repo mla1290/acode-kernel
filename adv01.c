@@ -1,4 +1,4 @@
-/* adv01.c: A-code kernel - copyleft Mike Arnautov 1990-2013.
+/* adv01.c: A-code kernel - copyleft Mike Arnautov 1990-2014.
  *
  * 04 Apr 13   MLA             BUG: Don't loop in MS code when no saved game.
  * 10 Mar 13   MLA             Added MSDOS overrides.
@@ -114,15 +114,10 @@
 
 #define PRINTF(X)    { char *ptr = X; while (*ptr) outchar(*ptr++); }
 
-
-#if WINDOWS
-#  include <windows.h>
-#endif /* WINDOWS */
-
 #ifdef BROWSER
 #  if WINDOWS
-#     include <winsock2.h>
 #     include <ws2tcpip.h>
+#     include <winsock2.h>
 #     define sclose closesocket
 #  else /* !WINDOWS */
 #    include <sys/socket.h>
@@ -132,6 +127,10 @@
 #    define sclose close
 #  endif /* WINDOWS */
 #endif
+
+#if WINDOWS
+#  include <windows.h>
+#endif /* WINDOWS */
 
 /*===========================================================*/
 
@@ -147,7 +146,7 @@ int delay;
 
 /*===========================================================*/
 
-#if STYLE > 11
+#if STYLE >= 11
 
 #if WINDOWS
 #  define SEP '\\'

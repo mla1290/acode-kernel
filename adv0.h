@@ -1,4 +1,4 @@
-/* adv0.h: A-code kernel - copyleft Mike Arnautov 1990-2012.
+/* adv0.h: A-code kernel - copyleft Mike Arnautov 1990-2014.
  *
  * 24 May 07   Stuart Munro    Added check for _MSC_EXTENSIONS.
  *                             Also defined __STDC__ explicitly as 1.
@@ -17,6 +17,7 @@
 #ifdef __STDC__
 extern void say (int key, int what, int qualifier);
 extern int query (int textref);
+extern void cgiquery (int textref, int qid);
 extern int special (int key, int *var);
 extern int ishere (int l1, int l2, int l3);
 extern int isat (int l1, int l2, int l3, int l4);
@@ -63,7 +64,7 @@ extern void show_data (void);
 extern int http_in (void);
 extern int http_out (void);
 extern void http_init (void);
-extern void (*procs[])(void);
+extern int (*procs[])(void);
 extern void pcall (int);
 extern int typed (char *);
 extern void svar (int, int *);
@@ -79,6 +80,7 @@ extern void my_usleep (int);
 #else /* ! __STDC__ */
 extern void say ();
 extern int query ();
+extern void cgiquery ();
 extern int special ();
 extern int ishere ();
 extern int isat ();
@@ -117,7 +119,7 @@ extern void show_data();
 extern int http_in ();
 extern int http_out ();
 extern void http_init ();
-extern void (*procs[]) ();
+extern int (*procs[]) ();
 extern void pcall ();
 extern int typed ();
 extern void svar ();

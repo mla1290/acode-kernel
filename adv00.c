@@ -1,7 +1,11 @@
-/* adv00.c: A-code kernel - copyleft Mike Arnautov 1990-2013.
+/* adv00.c: A-code kernel - copyleft Mike Arnautov 1990-2014.
  */
-#define KERNEL_VERSION "12.54, 20 April 2013"
+#define KERNEL_VERSION "12.58, 08 Dec 2014"
 /*
+ * 08 Dec 15   MLA        Console mode suppresses HTML in CGI mode.
+ * 09 Sep 14   MLA        Bug: fixed BROWSER NONE in conffile.
+ * 30 May 14   MLA        Bug: prompt_line needs ifndef NO_READLINE.
+ * 26 May 13   MLA        BUG: Don't restore undo history unless safe to do so.
  * 20 Apr 13   MLA        BUG: Don't use break when parsing comline!
  *                        Bug: unset CONTEXT on undo/redo.
  *                        bug: don't say Oops! if starting a CGI game.
@@ -692,6 +696,7 @@ int amatch = 1;
 #else
    int justify = 0;
 #endif
+int html_ok = 1;
 int compress;
 char compact[2];
 #if defined(PAUSE) || WINDOWS
@@ -706,13 +711,14 @@ char compact[2];
 #endif
 int cgi = 0;
 char cgicom [160];
-char *cgi_name = CGINAME;
+char truname [80];
+char *cgi_name;
 
 #include "adv3.h"
 #include "adv4.h"
 #include "adv2.h"
 #include "adv5.h"
-
+  
 #ifdef AGAIN
    int done_again;
 #endif /* AGAIN */
@@ -749,10 +755,8 @@ int locate_demands;
 #endif /* LOC_STATS */
 char *text_buf;
 int text_buf_len = 4096;
-#if STYLE >= 11
-   short *word_buf = NULL;
-   int upcase = 1;
-#endif
+short *word_buf = NULL;
+int upcase = 1;
 char *lptr;
 int text_len = 0;
 int location_all;
@@ -1762,7 +1766,9 @@ void format_buffer (int terminate, int html)
    else if (frag)
    {
       char *eptr = lptr - 1;
-      if (eptr >= text_buf && *eptr != ' ' && *eptr != NBSP) 
+      if (*(optr - 1) == NBSP && !html_ok)
+        *(optr - 1) = ' ';
+      else if (eptr >= text_buf && *eptr != ' ' && *eptr != NBSP) 
          oputc (' ');
    }
    else if (!quitting)
@@ -1936,7 +1942,7 @@ void outbuf (int terminate)
       outtext ('C');
    else
    {
-      format_buffer (terminate, 1);    /* Need HTML format */
+      format_buffer (terminate, html_ok);    /* Need HTML format */
 #ifndef NO_READLINE
       prompt_ptr = prompt_line;
       *prompt_line = '\0';
@@ -2109,6 +2115,7 @@ int qualifier;
       }
       ta = textadr [what];
    }
+#if LLOC > FLOC
    else if (what >= FLOC)
    {
 #if STYLE == 1
@@ -2127,6 +2134,8 @@ int qualifier;
 #endif /* STYLE */
          ta = long_desc [what];
    }
+#endif /* LLOC > FLOC */
+#if LOBJ > FOBJ
    else if (what >= FOBJ)
    {
 #if defined(DETAIL) && STYLE == 10
@@ -2149,7 +2158,7 @@ int qualifier;
       else
          ta = long_desc [what];
    }
-
+#endif /* LOBJ > FOBJ */
    if ((tc = get_char (ta)) == '\0') goto shutup;
 
 #define RANDOM_TEXT      1
@@ -2532,6 +2541,13 @@ int insize;
 #endif
 {
    char *cptr;
+#ifndef NO_READLINE
+   if (!*prompt_line)
+   {
+      memset (prompt_line, ' ', 20);
+      strcpy (prompt_line + Margin, "? ");
+   }
+#endif
 #ifdef DWARVEN
    extra_dwarvish = 0;
 #endif
@@ -2545,7 +2561,7 @@ int insize;
       FILE *adl;
       char name[64];
       special (998, &value [0]);
-      sprintf (name, "%s.adl", CGINAME);
+      sprintf (name, "%s.adl", truname);
       if ((adl = fopen(name, WMODE)) != NULL)
       {
          char *cptr = text_buf;
@@ -2579,7 +2595,9 @@ int insize;
    if (cgi == 'x' || cgi == 'z')
    {
       special (998, &value [0]);
+#if STYLE >= 11
       if (word_buf) free (word_buf);
+#endif /* STYLE >= 11 */
       exit (value [ADVCONTEXT]);
    }
    if (cgi == 'y')
@@ -2714,6 +2732,9 @@ int insize;
    }
    if (log_file)
       fprintf (log_file,"\nREPLY: %s\n", inbuf);
+#ifndef NO_READLINE
+   *prompt_line = '\0';
+#endif
 }
 /*===========================================================*/
 #ifdef __STDC__
@@ -2912,7 +2933,7 @@ int *tadr;
 int which_arg;
 int gripe;
 #endif
-#else
+#else /* STYLE < 11 */
 /*===========================================================*/
 #ifdef __STDC__
 void find_word (int *type, int *refno, int *tadr, int which_arg)
@@ -3372,7 +3393,7 @@ int textref;
       orphan = arg1;
       strncpy (orphan_word, arg1_word, 20);
    }
-#ifdef ADVCONTEXT
+#if defined(ADVCONTEXT) && STYLE >= 11
    else if (cgi > 'b' && *orphan_word && orphan == 0)
       find_word (&type, &orphan, &tadr, 0, 0);
 #endif
@@ -3703,32 +3724,34 @@ int textref;
 {
    char reply [10];
    char *rp;
-   int which = 0;
-
+   int which = -1;
    if (textref >= 0) say (0, textref, 0);
    else scrchk (NULL);
-
-try_again:
-   query_flag = 1;
-   getinput (reply, 10);
-   scrchk (NULL);
-#ifdef DWARVEN
-   if (value [DWARVEN])  shift_down (reply, 10);
-#endif /* DWARVEN */
-   rp = reply;
-   if (*rp == '\0' || *rp == '\n') return (1);
-   while (*rp == ' ') rp++;
-   if (*rp == 'y' || *rp == 'Y') return (1);
-   if (*rp == 'n' || *rp == 'N') return (0);
-   if (*rp == 'q' || *rp == 'Q') return (0);
-   if (which)
+   while (which < 0)
    {
-      PRINTF ("(OK, smartass... I'll assume you mean YES - so there!)\n \n");
-      return (1);
+      query_flag = 1;
+      getinput (reply, 10);
+      scrchk (NULL);
+#ifdef DWARVEN
+      if (value [DWARVEN])  shift_down (reply, 10);
+#endif /* DWARVEN */
+      rp = reply;
+      while (*rp == ' ') rp++;
+      if (*rp == '\0' || *rp == '\n') which = 1;
+      else if (*rp == 'y' || *rp == 'Y') which = 1;
+      else if (*rp == 'n' || *rp == 'N') which = 0;
+      else if (*rp == 'q' || *rp == 'Q') which = 0;
+      if (which < -1)
+      {
+         PRINTF ("(OK, smartass... I'll assume you mean YES - so there!)\n \n");
+         which = 1;
+      }
+      if (which >= 0)
+         break;
+      PRINTF ( "Eh? Do me a favour and answer yes or no!\nWhich will it be? ");
+      which--;
    }
-   PRINTF ("Eh? Do me a favour and answer yes or no!\nWhich will it be? ");
-   which = 1;
-   goto try_again;
+   return which;
 }
 /*===========================================================*/
 #ifdef __STDC__
@@ -3956,7 +3979,7 @@ int *var;
    static char *scratch;
    char file_name [168];
    FILE *game_file;
-   int val, val1;
+   int val, val1, val2;
 #if STYLE >= 10
    int lval;
 #endif /* STYLE >= 10 */
@@ -4144,19 +4167,19 @@ got_name:
          fwrite (&chksum, sizeof (int), 1, game_file);
          fwrite (tval, 1, sizeof(time_t), game_file);
          fwrite (IMAGE, 1, IMAGE_SIZE, game_file);
-#if STYLE >=11
          if (cgi > 'b' && key == 998)
          {
             fwrite (qwords, sizeof (char), sizeof (qwords), game_file);
             fwrite (qvals, sizeof (char), sizeof (qvals), game_file);
             fwrite (&mainseed, sizeof (int), 1, game_file);
+#if STYLE >=11
             fwrite (word_buf, sizeof (short), *word_buf - 1, game_file);
+#endif
             fwrite (old_comline, sizeof (char), sizeof (old_comline),
                game_file);
             fwrite (long_word, sizeof (char), sizeof (long_word),
                game_file);
          }
-#endif
          *var = (ferror (game_file)) ? 1 : 0;
          fclose (game_file);
 #ifdef UNDO
@@ -4198,6 +4221,7 @@ restore_it:
             return (0);
          }
          val1 = 0;
+         val2 = 0;
          fread (&val, sizeof (int), 1, game_file);
 #ifdef DEBUG
          printf ("FOBJ: image %3d, expected %3d\n", val, FOBJ);
@@ -4208,26 +4232,31 @@ restore_it:
          printf ("LOBJ: image %3d, expected %3d\n", lobj, LOBJ);
 #endif /* DEBUG */
          if (lobj > LOBJ) val1++;
+         else if (lobj < LOBJ) val2++;
          fread (&lplace, sizeof (int), 1, game_file);
 #ifdef DEBUG
          printf ("LLOC: image %3d, expected %3d\n", lplace, LLOC);
 #endif /* DEBUG */
          if (lplace > LLOC) val1++;
+         else if (lplace < LLOC) val2++;
          fread (&lverb, sizeof (int), 1, game_file);
 #ifdef DEBUG
          printf ("LVERB: image %3d, expected %3d\n", lverb, LVERB);
 #endif /* DEBUG */
          if (lverb > LVERB) val1++;
+         else if (lverb < LVERB) val2++;
          fread (&lvar, sizeof (int), 1, game_file);
 #ifdef DEBUG
          printf ("LVAR: image %3d, expected %3d\n", lvar, LVAR);
 #endif /* DEBUG */
          if (lvar > LVAR) val1++;
+         else if (lvar < LVAR) val2++;
          fread (&ltext, sizeof (int), 1, game_file);
 #ifdef DEBUG
          printf ("LTEXT: image %3d, expected %3d\n", ltext, LTEXT);
 #endif /* DEBUG */
          if (ltext > LTEXT) val1++;
+         else if (ltext < LTEXT) val2++;
 
          if (val1)
          {
@@ -4275,12 +4304,13 @@ restore_it:
             int imgsiz = varbo + varbs;
             fread (scratch, 1, imgsiz, game_file);
          }
-#ifdef ADVCONTEXT
+#if defined(ADVCONTEXT)
          if (cgi > 'b' && key == 999)
          {
             fread (qwords, sizeof (char), sizeof (qwords), game_file);
             fread (qvals, sizeof (char), sizeof (qvals), game_file);
             fread (&mainseed, sizeof (int), 1, game_file);
+#if STYLE >= 11
             if (! ferror (game_file))
             {
                fread (word_buf, sizeof (short), 2, game_file);
@@ -4293,6 +4323,7 @@ restore_it:
                   fread (word_buf + 2, sizeof (short),
                      *word_buf - 3, game_file);
             }
+#endif
             if (! ferror (game_file))
             {
                fread (old_comline, sizeof (char), sizeof (old_comline),
@@ -4381,7 +4412,8 @@ restore_it:
                unsigned char *d;
                if (diffs)
                   edptr = dptr = diffs + 4;
-               fread (&len, 1, sizeof (int), game_file);
+               if (val2 == 0)   /* Not if structure changed! */
+                  fread (&len, 1, sizeof (int), game_file);
                if (len > 0)
                {
                   diflen = 8192 * ((len + 8191) / 8192);
@@ -4468,7 +4500,7 @@ restore_it:
          *var = (tp[tindex] == NULL);
          return (0);
 /*    case 13: */      /* Spare */
-#if STYLE > 11
+#if STYLE > 10
       case 14:         /* Get persistent data item */
          *var = get_pdata (*var);
          return (0);
@@ -4476,7 +4508,7 @@ restore_it:
       case 16:         /* Clear persistent data item */
          set_pdata (*var, key == 15 ? 1 : 0);
          return (0);
-#endif /* STYLE > 11 */
+#endif /* STYLE > 10 */
 /*    case 17: */        /* Spare */
 /*    case 18: */        /* Spare */
       case 19:    /* Fiddle justification */
@@ -5085,6 +5117,11 @@ void read_conf ()
          if (conf [BROWEXE])      /* But we already have a valid browser! */
             continue;             /* So ignore the line */
          cptr = *(tkn + 1);       /* Look at second token */
+         if (strcmp (cptr, "NONE") == 0)
+         {
+            cgi = -1;
+            continue;
+         }
          if (strcmp(cptr, "DEFAULT") == 0)
          {
             use_default = 1;      /* Note that default browser is to be used */
@@ -5104,8 +5141,6 @@ void read_conf ()
             if (!cptr)
                continue;
          }
-         if (strcmp (cptr, "NONE") == 0)
-            cgi = -1;
          else
             check_browser (cptr);
       }
@@ -5291,9 +5326,9 @@ char *cftext [] = {
    "# if the machine is busy, memory short and the js engine inefficient, you"EOL,
    "# never know..."EOL,
    "#"EOL,
-   "   TIMEOUT INVOCATION  20        # Up to 20 seconds to fully invoke browser"EOL,
-   "   TIMEOUT KEEPALIVE    2        # Keep-alive pings every 2 seconds"EOL,
-   "   TIMEOUT GRACETIME    2        # Grace time for delayed pings"EOL,
+   "   TIMEOUT INVOCATION  30        # Up to 30 seconds to fully invoke browser"EOL,
+   "   TIMEOUT KEEPALIVE    4        # Keep-alive pings every 4 seconds"EOL,
+   "   TIMEOUT GRACETIME    4        # Grace time for delayed pings"EOL,
    "#"EOL,
    "# Finally for the console mode only, some screen layout requirements."EOL,
 #endif /* MSDOS */
@@ -5429,18 +5464,18 @@ char *prog;
 /*
  * Go to where A-code games live!
  */
-      if (chdir (CGINAME + 1) != 0)
+      if (chdir (truname + 1) != 0)
       {
 #if !WINDOWS || defined(MSDOS)
-         mkdir (CGINAME + 1, 0700);
+         mkdir (truname + 1, 0700);
 #else
-         mkdir (CGINAME + 1);
+         mkdir (truname + 1);
 #endif /* MSDOS */
-         chdir (CGINAME + 1);
+         chdir (truname + 1);
       }
 
       read_conf (); /* Process the config file, if any -- we may */
-      if (!cgi)                    /* need the default therefrom */
+      if (cgi <= 0)                /* need the default therefrom */
       {
          putchar ('\n');
          for (index = 0; index < Margin; index++)
@@ -5510,8 +5545,13 @@ char *prog;
 #ifdef PLAIN
    strcpy (title, (char *)text + 1);
 #else
-   title [0] = text [1] ^ KNOT;
    titlen = 0;
+   if (*text)
+      titlen = -1;
+#  ifdef KNOT
+   else
+     title [0] = text [1] ^ KNOT;
+#  endif
    while (++titlen < 80)
       if ((title [titlen] = text [titlen] ^ text [titlen + 1]) == '\0')
          break;
@@ -5551,7 +5591,7 @@ char *prog;
 void zap_cgi_dump (void)
 {
    char name [64];
-   int len =sprintf (name, "%s.adv", CGINAME) - 1;
+   int len =sprintf (name, "%s.adv", truname) - 1;
    unlink (name);
    *(name + len) = 'h';
    unlink (name);
@@ -5572,8 +5612,20 @@ char **argv;
    char oc;
    char *opt;
    int new_game = 0;
+   char *cptr;
    
    prog = *argv;
+   strncpy(truname + 1, strrchr(*argv, SEP) + 1, sizeof(truname) - 1);
+   *(truname + sizeof(truname) - 1) = '\0';
+#if WINDOWS || MSDOS
+   *truname = '_';
+#else
+   *truname = '.';
+#endif /* MSDOS || WINDOWS */
+   cptr = strrchr(truname, '.');
+   if (cptr) *cptr = '\0';
+   cgi_name = truname;
+
 #ifdef BROWSER
 #  if WINDOWS
    cgi = 'b';
@@ -5605,6 +5657,7 @@ char **argv;
             strncpy (log_path, *argv, sizeof (log_path)); 
             *(log_path + sizeof (log_path) - 1) = '\0';
          }
+         continue;
       }
       kwrd = *argv + 1;          /* Point at the keyword specifier */
       if (*kwrd == '-') kwrd++;  /* Skip GNU-style prefix */
@@ -5735,7 +5788,10 @@ char **argv;
 #endif /* WINDOWS */
       }
       else if (*kwrd == 'C')
-         cgi = -1;
+      {
+         if (cgi == 'b') cgi = -1;
+         html_ok = 0;
+      }
 #endif /* BROWSER */
       else if (*kwrd == 'h')
       {
@@ -5883,7 +5939,7 @@ char **argv;
          char name [64];
          int c;
          PRINTF (RESTORING);
-         sprintf (name, "%s.adl", CGINAME);
+         sprintf (name, "%s.adl", truname);
          if ((adl = fopen (name, RMODE)) != NULL)
          {
             while ((c = fgetc(adl)) != EOF)
@@ -5899,7 +5955,7 @@ char **argv;
    {
       cgi_name = dump_name;
       special (997, &value [0]);
-      cgi_name = CGINAME;
+      cgi_name = truname;
    }
    else if (cgi == 'y')
       special (999, &value [0]);
@@ -5946,7 +6002,6 @@ run_it:
 #endif /* UNDO */
 
    setjmp (loop_back);
-
    if (quitting) 
    {
       zap_cgi_dump ();
@@ -6657,7 +6712,7 @@ void show_data ()
    FILE *rrefs;
    char buf [80];
    
-   sprintf (buf, "%s.rrefs", CGINAME);
+   sprintf (buf, "%s.rrefs", truname);
    rrefs = fopen (buf + 1, RMODE);
    for (i = FOBJ; i < LTEXT; i++)
    {
