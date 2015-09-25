@@ -1,8 +1,29 @@
-/* adv00.c: A-code kernel - copyleft Mike Arnautov 1990-2014.
+/* adv00.c: A-code kernel - copyright Mike Arnautov 1990-2015.
+ * Licensed under the Modified BSD Licence (see the supplied LICENCE file). 
  */
-#define KERNEL_VERSION "12.58, 08 Dec 2014"
+#define KERNEL_VERSION "12.65, 16 May 2015"
 /*
- * 08 Dec 15   MLA        Console mode suppresses HTML in CGI mode.
+ * 16 May 15   MLA        Bug: must get input if quitting but end_pause!
+ * 21 Apr 15   BTB        Bug: need ios.h in adv00.c too!
+ * 19 Apr 15   MLA        Bug: fixed block centering.
+ *                        Adjusted centering to be slightly left biased.
+ * 15 Apr 15   MLA        BUG: Oops!!! Reinstated call to read_conf.
+ * 09 Jan 15   MLA        Truname now simply defaults to CGI_NAME.
+ *                        Command line parsing split off into parse_args().
+ * 05 Jan 15   MLA        Moved special character definitions to adv0.h
+ *                        Bug: Don't translate TAG_START/END twice!
+ * 30 Dec 14   MLA        Added emscripten support for JavaScript version.
+ * 28 Dec 14   MLA        Bug: stopped file handle leak in ADVLIB mode.
+ * 27 Dec 14   MLA        Renamed advmain to advturn() and simplified arguments.
+ *                        BUG: call to zap_cgi_dump() must be unconditional!
+ *                        Renamed zap_cgi_dump() to zap_dump().
+ *                        bug: ADVLIB: always translate NBSP.
+ * 24 Dec 14   MLA        Removed redundant call to zap_cgi_dump().
+ * 22 Dec 14   MLA        Bug: set word_buf to NULL after freeing.
+ *                        Bug: initialise IMAGE[] before calling INIT_PROC.
+ *             BTB & MLA  Added IOS symbol.
+ * 20 Dec 14   MLA        Bug: Corrected truname setting.
+ * 08 Dec 14   MLA        -C suppresses HTML in CGI mode.
  * 09 Sep 14   MLA        Bug: fixed BROWSER NONE in conffile.
  * 30 May 14   MLA        Bug: prompt_line needs ifndef NO_READLINE.
  * 26 May 13   MLA        BUG: Don't restore undo history unless safe to do so.
@@ -381,6 +402,35 @@
 #  endif
 #endif
 
+#ifdef IOS
+#  ifndef ADVLIB
+#    define ADVLIB
+#  endif
+#  include "ios.h"
+#  define fopen advopen
+#endif /* IOS */
+
+#if defined(JS)
+#  ifndef ADVLIB
+#    define ADVLIB
+#  endif
+#endif /* JS */
+
+#ifdef ADVLIB
+#  ifndef NO_READLINE
+#    define NO_READLINE
+#  endif
+#  ifndef CONSOLE
+#    define CONSOLE
+#  endif
+#endif /* ADVLIB*/
+
+#if defined(__unix__) || defined(__linux__)
+#  if !defined(HAVE_UNISTD_H) && !defined(NO_UNISTD_H)
+#    define HAVE_UNISTD_H
+#  endif /* *_UNISTD_H */
+#endif /* __unix__ || __linux__ */
+
 #ifdef USEDB
 #  undef USEDB
 #endif /* USEDB */
@@ -549,15 +599,11 @@ int http_offset = 0;
 #ifdef __STDC__
    void shift_up (char *);
    void shift_down (char *, int);
-#  if STYLE >= 11
-      extern int process_saved (int, char *);
-#  endif
+   extern int process_saved (int, char *);
 #else
    void shift_up();
    void shift_down();
-#  if STYLE >= 11
-      extern int process_saved();
-#  endif
+   extern int process_saved();
 #endif
 
 #ifdef CONSOLE
@@ -590,34 +636,12 @@ char *dump_name = NULL;
 #  include "adv6.h"
 #endif /* ! USEDB */
 
-#define SW_START     '\377'
-#define SW_BREAK     '\376'
-#define HOLDER       '\375'
-#define IGNORE_EOL   '\373'
-#define NEST_TEXT    '\372'
-#define QUOTE_START  '\371'
-#define TAG_START    '\370'
-#define TAG_END      '\367'
-#define NBSP         '\366'
-#define BLOCK_START  '\365'
-#define BLOCK_END    '\364'
-#define CENTRE_START '\363'
-#if STYLE >= 10
-#  ifdef DWARVEN
-#     define DWARVISH  '\362'
-#  endif /* DWARVEN */
-#  define VHOLDER      '\361'
-#endif /* STYLE */
-#define PARA_START     '\360'
-#define PARA_END       '\357'
-
 void outbuf (int);
 int value_all;
 jmp_buf loop_back;
 #ifdef USEDB
    char *dbs_dir = NULL;
 #endif /* USEDB */
-char exec [128];
 char virgin;
 #define VAL_SIZE (LTEXT * sizeof (int))
 #define OFFSET_LOCS VAL_SIZE
@@ -755,7 +779,8 @@ int locate_demands;
 #endif /* LOC_STATS */
 char *text_buf;
 int text_buf_len = 4096;
-short *word_buf = NULL;
+char *scratch;
+short *word_buf;
 int upcase = 1;
 char *lptr;
 int text_len = 0;
@@ -798,6 +823,7 @@ char *lp;
 
 #define RESTORING "Restoring game in progress...\n\n"
 
+#ifndef ADVLIB
 #define BROWEXE    0
 #define BG         1
 #define FG         2
@@ -824,6 +850,7 @@ char *conf[] = { NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
 #define SUBMIT_BUTTON "&nbsp;&nbsp;<input type=\"submit\" name=\"Submit\", value=\"Submit\">"
 
 int timeout = 100;
+#endif /* ADVLIB */
 
 /******************************************************************/
 #if !defined(NOVARARGS) && defined(__STDC__)
@@ -1574,7 +1601,8 @@ char *centre_text_lines (char *iptr, int html)
          iptr++;
       if (!html)
       {
-         int l = (Maxlen - (iptr - jptr)) / 2;
+         int l = (Maxlen - (iptr - jptr)) / 2 - 2;
+         if (l < 0) l = 0 ;
          while (l--) oputs (html ? "&nbsp;" : " ");
       }
       while (jptr < iptr)
@@ -1612,12 +1640,14 @@ char *centre_block (char *iptr, int html)
       if (jptr - bptr < lead) lead = jptr - bptr;
       while (*jptr != '\n' && *jptr != BLOCK_END) jptr++;
       if (jptr - bptr > mxl) mxl = (jptr - bptr);
-      if (!*jptr || *jptr == BLOCK_END) break;
       jptr++;
+      if (!*jptr || *jptr == BLOCK_END) break;
    }
-   offset = (Maxlen - mxl - lead) / 2;
+   offset = (Maxlen - mxl + lead) / 2 - 2;
+   if (offset < 0) offset = 0;
    while (1)
    {
+      if (*iptr == BLOCK_END) break;
       for (i = 0; i < lead; i++) iptr++;
       if (!html) for (i = 0; i < offset; i++) oputc (' ');
       while (*iptr != '\n' && *iptr != BLOCK_END)
@@ -1645,7 +1675,12 @@ void format_buffer (int terminate, int html)
    int type;
    int ignore_eol = 0;
    
+#ifdef ADVLIB
+   optr = obuf + 1;
+   *obuf = ' ';
+#else
    optr = obuf + http_offset + (html ? 1 : 0);
+#endif /* ADVLIB */
    
 /* Prepare the output opening and skip any introductory line feeds. */
 
@@ -1685,7 +1720,12 @@ void format_buffer (int terminate, int html)
             break;
          case NBSP:
             if (html) oputs ("&nbsp;");
-            else oputc (*iptr);
+            else
+#ifdef ADVLIB
+              oputc (' ');
+#else
+              oputc (*iptr);
+#endif
             break;
          case QUOTE_START:
          case BLOCK_START:
@@ -1693,8 +1733,9 @@ void format_buffer (int terminate, int html)
             if (html)
             {
                if (*iptr != CENTRE_START) 
-                 oputs ("<table align=center><tr><td>\n");
-               else oputs("<div align=center>\n");
+                 oputs ("<table align=center width=automatic><tr><td>\n");
+               else 
+                 oputs("<div align=center>\n");
                if (*iptr == QUOTE_START) oputs ("<pre>");
             }
             type = *iptr;
@@ -1943,6 +1984,7 @@ void outbuf (int terminate)
    else
    {
       format_buffer (terminate, html_ok);    /* Need HTML format */
+#ifndef ADVLIB
 #ifndef NO_READLINE
       prompt_ptr = prompt_line;
       *prompt_line = '\0';
@@ -1956,6 +1998,7 @@ void outbuf (int terminate)
          fputs (obuf, stdout);
          fflush (stdout);
       }
+#endif /* !ADVLIB */
    }
 
 /* Now zap the text buffer */
@@ -2358,6 +2401,12 @@ void outchar (text_char)
 char text_char;
 #endif
 {
+   if (!text_buf)
+   {
+      text_buf = advalloc (text_buf_len);
+      lptr = text_buf;
+   }
+
    if (text_len == text_buf_len - 8)
    {
       text_buf_len += 1024;
@@ -2365,6 +2414,7 @@ char text_char;
       lptr = text_buf + text_len;
    }
 
+#ifdef OBSOLETE
 #ifdef TAG_START
    
    if (text_char == TAG_START)
@@ -2393,7 +2443,8 @@ char text_char;
    if (html_tag && !cgi)
       return;
 
-#endif /* TAG */
+#endif /* TAG_START */
+#endif /* OBSOLETE */
 
    if (text_char == '\n')
    {
@@ -2429,6 +2480,7 @@ char text_char;
       shift_up (lptr);
 #endif /* DWARVEN */
    lptr++;
+   *lptr = '\0';
    return;
 }
 
@@ -2526,9 +2578,11 @@ void close_files ()
          fprintf (log_file, "*-");
       fprintf (log_file, "*\n");
       fclose (log_file);
+      log_file = NULL;
    }
 #if STYLE >= 11
    if (word_buf) free (word_buf);
+   word_buf = NULL;
 #endif
 }
 /*===========================================================*/
@@ -2552,11 +2606,12 @@ int insize;
    extra_dwarvish = 0;
 #endif
 #ifdef ADVCONTEXT
-   if (text_len > 3 && value [ADVCONTEXT] == 0 && 
-      !query_flag && cgi <= 'b')
+   if (text_len > 3 && value [ADVCONTEXT] == 0 &&
+      !query_flag && cgi != 'b')
 #else /* !ADVCONTEXT */
    if (text_len > 3 && !query_flag && !quitting)
 #endif /* ADVCONTEXT */
+
    {
       FILE *adl;
       char name[64];
@@ -2597,8 +2652,13 @@ int insize;
       special (998, &value [0]);
 #if STYLE >= 11
       if (word_buf) free (word_buf);
+      word_buf = NULL;
 #endif /* STYLE >= 11 */
+#ifdef ADVLIB
+      longjmp (loop_back, 2);
+#else
       exit (value [ADVCONTEXT]);
+#endif /* ADVLIB */
    }
    if (cgi == 'y')
    {
@@ -2687,7 +2747,7 @@ int insize;
       (void) browser_read (inbuf, timeout);
    }
 #endif /* BROWSER */
-   if (com_file == NULL && cgi != 'b' && !quitting)
+   if (com_file == NULL && cgi != 'b' && (!quitting || end_pause))
 #ifdef NO_READLINE
       fgets (inbuf, insize, stdin);
 #else
@@ -3976,7 +4036,6 @@ int *var;
 #endif
 {
    static char save_name [168];
-   static char *scratch;
    char file_name [168];
    FILE *game_file;
    int val, val1, val2;
@@ -4432,6 +4491,8 @@ restore_it:
                      fread (&len, 1, sizeof (int), game_file);
                      edptr = diffs + len;
                   }
+                  else
+                     free(d);
                }
                fclose (game_file);
 	    }            
@@ -4775,19 +4836,21 @@ int trim;
    free (dptr);
    return (dbf);
 }
-
 #endif /* USEDB */
+
 #if WINDOWS
 #  define CONFDIR "acode"
 #else
 #  define CONFDIR  ".acode"
-#endif
+#endif /* WINDOWS */
+
 #ifdef MSDOS
 #  define CONFFILE "acode.cfg"
 #else
 #  define CONFFILE "acode.conf"
-#endif
+#endif /* MSDOS */
 /*====================================================================*/
+#ifndef ADVLIB
 void store_conf (int index, char *value)
 {
    if (*(conf + index) == NULL)
@@ -4805,6 +4868,7 @@ void store_conf (int index, char *value)
       strcpy (*(conf + index), value);
    }
 }
+#endif /* ADVLIB */
 /*====================================================================*/
 void parse_line (char *line, char **tokens)
 {
@@ -4862,6 +4926,7 @@ char *recase (char *token, int cflag)
    return (token);
 }
 /*====================================================================*/
+#ifndef ADVLIB
 void handle_token (int type, int attribute, char *aptr, int max, int *val)
 {
    char buf [16]; 
@@ -5351,7 +5416,7 @@ void make_conf (void)
    while (**cfptr) fputs (*cfptr++, cfile);
    fclose (cfile);  
 }
-
+#endif /* ADVLIB */
 /*===========================================================*/
 #ifdef __STDC__
 int initialise (char *prog)
@@ -5436,7 +5501,6 @@ char *prog;
       else
          mainseed = atol (comline + strlen (GAME_ID) + 1);
    }
-
    if (cgi < 'x')
    {
       struct stat stat_buf;
@@ -5456,6 +5520,7 @@ char *prog;
 /*
  * If necessary, create the config file.
  */
+#ifndef ADVLIB
       if (stat (CONFFILE, &stat_buf) != 0)
       {
          void make_conf (void);
@@ -5473,8 +5538,9 @@ char *prog;
 #endif /* MSDOS */
          chdir (truname + 1);
       }
+      read_conf(); /* Process the config file, if any */
+#endif /* !ADVLIB */
 
-      read_conf (); /* Process the config file, if any -- we may */
       if (cgi <= 0)                /* need the default therefrom */
       {
          putchar ('\n');
@@ -5482,63 +5548,29 @@ char *prog;
             putchar (' ');
       }
       PRINTF2("A-code kernel %s\n", KERNEL_VERSION);
-
-/* Do a one-off copy of saved games from where they might be to the new
- * game home location.
- */
- 
-#if STYLE > 11
-      if (strcmp (GAME_NAME, "Adv770") == 0 && get_pdata(0) <= 0)
-      {
-         char path [128];
-         char *nptr = getenv (HOME);
-         
-         if (nptr == NULL)
-            nptr = "";
-         
-         strcpy (path, nptr);
-         nptr = path + strlen (nptr);
-         process_saved (-1, path);
-         if (nptr > path)
-            *nptr++ = SEP;
-#if MACOS
-         strcpy (nptr, "Library/Preferences/advent");
-         process_saved (-1, path);
-         process_saved (-1, "/Applications/adv770");
-#endif /* MACOS */
-#if WINDOWS
-         process_saved (-1, "C:\\Program Files\\Adv770");
-#endif /* WINDOWS */
-#if UNIX
-         strcpy (nptr, CONFDIR);         
-         process_saved (-1, path);
-         strcpy (nptr, CONFDIR + 1);         
-         process_saved (-1, path);
-         strcpy (nptr, GAME_NAME);         
-         process_saved (-1, path);
-#endif /* UNIX */
-         set_pdata (0, 1);
-      }
-#endif /* STYLE > 11 */
-
-/* End of one-off game copy code */
    }
 
    if (*log_path)
    {
-      if ((log_file = fopen (log_path, conf[LOGFILE])) == NULL)
+#ifdef ADVLIB      
+      if (!log_file && (log_file = fopen (log_path, UMODE)) == NULL)
+#else
+      if (!log_file && (log_file = fopen (log_path, conf[LOGFILE])) == NULL)
+#endif /* ADVLIB */
          printf ("(Sorry, unable to open log file...)\n");
       else 
       if (cgi <= 'x')
          fprintf (log_file, "%s: %u\n", GAME_ID, mainseed);
    }
 
-   text_buf = advalloc (text_buf_len);
+   if (!text_buf)
+     text_buf = advalloc (text_buf_len);
    lptr = text_buf;
    *lptr++ = '\n';
    text_len = 1;
 #if STYLE >= 11
-   word_buf = btinit (NULL);
+   if (!word_buf)
+     word_buf = btinit (NULL);
 #endif /* STYLE */
 
    virgin = *text;
@@ -5588,7 +5620,7 @@ char *prog;
    return (0);
 }
 /*===========================================================*/
-void zap_cgi_dump (void)
+void zap_dump (void)
 {
    char name [64];
    int len =sprintf (name, "%s.adv", truname) - 1;
@@ -5599,50 +5631,20 @@ void zap_cgi_dump (void)
    unlink (name);
 }
 /*===========================================================*/
-#  ifdef __STDC__
-int main (int argc, char **argv)
-#  else
-int main (argc, argv)
-int argc;
-char **argv;
-#  endif
+#ifndef ADVLIB
+int parse_args(int argc, char **argv)
 {
    char *kwrd;
    int val;
    char oc;
    char *opt;
    int new_game = 0;
-   char *cptr;
-   
-   prog = *argv;
-   strncpy(truname + 1, strrchr(*argv, SEP) + 1, sizeof(truname) - 1);
-   *(truname + sizeof(truname) - 1) = '\0';
-#if WINDOWS || MSDOS
-   *truname = '_';
-#else
-   *truname = '.';
-#endif /* MSDOS || WINDOWS */
-   cptr = strrchr(truname, '.');
-   if (cptr) *cptr = '\0';
-   cgi_name = truname;
-
-#ifdef BROWSER
-#  if WINDOWS
-   cgi = 'b';
-#  else /* !WINDOWS */
-   cgi = getenv("DISPLAY") ? 'b' : 0;
-#  endif /* WINDOWS */
-#endif
-   if (Linlen == 0) Linlen = 32767;
-   if (Screen == 0) Screen = 32767;
-   Maxlen = Linlen - 2 * Margin;
 #if STYLE == 1
    *compact = 'Y';
 #else
    *compact = 'N';
 #endif
    *(compact + 1) = '\0';
-   strncpy (exec, *argv, sizeof (exec) - 1);
    while (--argc)
    {
       argv++;
@@ -5692,7 +5694,7 @@ char **argv;
          handle_token ('c', COMPACT, compact, 0, &compress);
          continue;
       }
-      else if (*kwrd == 'p')
+      if (*kwrd == 'p')
       {
          if (oc == '0' || oc == 'n') end_pause = 0;
          else if (oc == '1' || oc == 'y') end_pause = 1;
@@ -5703,22 +5705,7 @@ char **argv;
          new_game = 1;
       else if (*kwrd == 'v')
       {
-#if defined(GAME_VERSION)
-         printf ("%s version %s", GAME_NAME, 
-            strcmp (GAME_VERSION, "99.99") == 0 ? "UNKNOWN" : GAME_VERSION);
-#if defined(GAME_DATE)
-         printf (", %s.\n", GAME_DATE);
-#else /* ! GAME_DATE */
-         puts (".");
-#endif /* GAME_DATE */
-
-#else /* ! GAME_VERSION */
-         if (strchr (GAME_ID, ' '))
-            puts (GAME_ID);
-         else
-            puts ("Game version UNKNOWN\n");
-#endif /* GAME_VERSION */
-
+         printf ("%s.\n", GAME_ID);
 #if defined(ACDC_VERSION)
          printf ("Acdc translator version %s.\n", ACDC_VERSION);
 #else
@@ -5787,12 +5774,12 @@ char **argv;
                   stderr);
 #endif /* WINDOWS */
       }
+#endif /* BROWSER */
       else if (*kwrd == 'C')
       {
          if (cgi == 'b') cgi = -1;
          html_ok = 0;
       }
-#endif /* BROWSER */
       else if (*kwrd == 'h')
       {
          printf ("\nUsage: %s [options]\n\nOptions:\n", prog);
@@ -5896,6 +5883,99 @@ char **argv;
       }
 #endif /* ADVCONTEXT */               
    }
+   return (new_game);
+}
+#endif /* !ADVLIB */
+/*===========================================================*/
+#ifdef ADVLIB
+#  ifdef __STDC__
+char *advturn (char *cmd)
+#  else
+char *advturn (cmd)
+char *cmd;
+#  endif
+#else
+#  ifdef __STDC__
+int main (int argc, char **argv)
+#  else
+int main (argc, argv)
+int argc;
+char **argv;
+#  endif
+#endif /* ADVLIB */
+{
+   int new_game = 0;
+   
+   if (!text_buf)
+   {
+      text_buf = advalloc (text_buf_len);
+      lptr = text_buf;
+   }
+   *text_buf = '\0';
+   
+/* NB: CGINAME has '.' or '_' prefix, but it might be wrong. */
+
+   strncpy (truname, CGINAME, sizeof (truname) - 1);
+   *(truname + sizeof(truname) - 1) = '\0';
+#  if WINDOWS || MSDOS
+   *truname = '_';
+#  else
+   *truname = '.';
+#  endif /* MSDOS || WINDOWS */
+   cgi_name = truname;
+
+#ifdef ADVLIB
+   cgi = 'y';
+   strncpy (cgicom, cmd, sizeof (cgicom));
+   if (strncmp (cmd, "_INFO_", 6) == 0)
+   {
+      if (*(cmd + 6) && *(cmd + 6) != 'H') html_ok = 0;
+      PRINTF (GAME_NAME);
+      outchar ('|');
+      PRINTF (GAME_ID);
+      return (text_buf);
+   }
+   else if (strncmp (cmd, "_LIST_", 6) == 0)
+   {
+      lptr = text_buf;
+      *text_buf = '\0';
+      process_saved (-1, "");
+      return (text_buf);
+   }
+   else if (strncmp (cmd, "_RESUME_", 6) == 0)
+   {
+      new_game = -1;
+      *cgicom = '\0';
+   }
+   else if (strncmp (cmd, "_LOAD_", 6) == 0)
+   {
+      cgi = 'x';
+      strcpy (comline, cmd + 6);
+      dump_name = comline;
+   }
+   else if (strncmp (cmd, "_START_", 7) == 0)
+   {
+      cgi = 'x';
+      if (*(cmd + 7) && *(cmd + 7) != 'H') html_ok = 0;
+      new_game = 1;
+   }
+   prog = ".";
+#else /* !ADVLIB */
+   prog = *argv;
+   strncpy(truname + 1, strrchr(*argv, SEP) + 1, sizeof(truname) - 1);
+#ifdef BROWSER
+#  if WINDOWS
+   cgi = 'b';
+#  else /* !WINDOWS */
+   cgi = getenv("DISPLAY") ? 'b' : 0;
+#  endif /* WINDOWS */
+#endif
+   new_game = parse_args(argc, argv);
+#endif /* ADVLIB */
+
+   if (Linlen == 0) Linlen = 32767;
+   if (Screen == 0) Screen = 32767;
+   Maxlen = Linlen - 2 * Margin;
 
 #ifndef NO_READLINE
    prompt_line = advalloc (2 * Maxlen + 1);
@@ -5918,8 +5998,9 @@ char **argv;
    rseed = mainseed %= 32768L;
    irand (1);
 
-   if (com_name) new_game = 1;
-      
+   if (com_name && !new_game) new_game = 1;
+
+   memset (IMAGE, '\0', sizeof (IMAGE));
    if (initialise (prog) != 0)
    {
       printf ("Sorry, unable to set up the world.\n");
@@ -5929,27 +6010,36 @@ char **argv;
    if (cgi == -1) cgi = 0;
    value [THERE] = value [HERE] = FLOC;
 
+   value[0] = 0;
    if (cgi < 'x' && !new_game)
    {
       if (! dump_name || ! *dump_name)
          special(999, &value [0]);
-      if (value[0] == 999 && !com_name)
-      {
-         FILE *adl;
-         char name [64];
-         int c;
-         PRINTF (RESTORING);
-         sprintf (name, "%s.adl", truname);
-         if ((adl = fopen (name, RMODE)) != NULL)
-         {
-            while ((c = fgetc(adl)) != EOF)
-               outchar (c & 0377);
-            fclose (adl);
-         }
-         goto run_it;
-      }
    }
-
+   if ((value[0] == 999 && !com_name) || new_game < 0) 
+   {
+      FILE *adl;
+      char name [64];
+      int c;
+      PRINTF (RESTORING);
+      sprintf (name, "%s.adl", truname);
+      if ((adl = fopen (name, RMODE)) != NULL)
+      {
+         while ((c = fgetc(adl)) != EOF)
+            outchar (c & 0377);
+         fclose (adl);
+      }
+#ifdef JS
+      outbuf(0);
+      return (obuf);
+#else
+      goto run_it;
+#endif /* JS */
+   }
+#ifdef JS
+   if (new_game)
+     value[STATUS] = -2;     /* Signal new game with no restore choice */
+#endif /* JS */
 #ifdef ADVCONTEXT
    if (cgi == 'x' && dump_name && *dump_name)
    {
@@ -5978,13 +6068,6 @@ char **argv;
          tp [0] = NULL;
          if (setjmp (loop_back) == 0)
             INIT_PROC ();
-#ifdef MLATEST
-         {
-            INIT_PROC ();
-            if (cgi < 'x')
-               special (999, &value [0]);
-         }
-#endif
       }
    }
 
@@ -6001,10 +6084,18 @@ run_it:
    }
 #endif /* UNDO */
 
+#ifdef ADVLIB
+   {
+      int jmptype = setjmp (loop_back);
+      if (jmptype > 1)
+        return (obuf);
+   }
+#else
    setjmp (loop_back);
+#endif /* ADVLIB */
+
    if (quitting) 
    {
-      zap_cgi_dump ();
       if (end_pause)
       {
          PRINTF ("(To exit, press ENTER)");
@@ -6018,12 +6109,21 @@ run_it:
          putchar('\n');
       }
       close_files ();
-      if (cgi)
-         zap_cgi_dump ();
+      zap_dump ();
 #if WINDOWS
       chdir(odir);
 #endif /* WINDOWS */
+#ifdef ADVLIB
+      *obuf = 'f';
+      quitting = 0;
+      return (obuf);
+#else
+      free (text_buf);
+      free (obuf);
+      if (scratch)
+        free (scratch);
       return (255);
+#endif
    }
    while (1)
    {
@@ -6674,7 +6774,11 @@ char *type;
 #endif
 {
    if (strcmp(type, "cgi") == 0)
+ #ifdef ADVLIB
+      return (0);
+#else
       return (cgi && cgi != 'b');
+#endif /* ADVLIB */
    if (strcmp(type, "doall") == 0)
       return (value_all);
    if (strcmp(type, "html") == 0)
@@ -7250,11 +7354,9 @@ char *page[] =
    "<div id=startit>\n",
    "&nbsp;<br>\n",
    "<h2 align=center>Welcome to the A-code browser interface</h2>",
-#if STYLE >= 10
    "<h3 align=center>",
    "=V",
    "</h3>\n",
-#endif
    "<p>This interface is can be used entirely from the keyboard, as long \n",
    "as the command input field remains in focus. Commands can be submitted\n",
    "by pressing the RETURN key and arrow keys can be used to recall and\n",
@@ -7307,9 +7409,6 @@ void send_page(void)
    char tdlen [16];
    char inplen [16];
    char tlimit [32];
-#if STYLE == 10
-   char version [64];
-#endif
 #
 #ifdef DEBUG
    printf ("=== Entering %s\n", "send_page"); 
@@ -7323,10 +7422,7 @@ void send_page(void)
    sprintf (tlimit, "var timeLimit = %d;\n", 10000 * atoi (conf [PINGTIME])); 
 #else
    sprintf (tlimit, "var timeLimit = %d;\n", 1000 * atoi (conf [PINGTIME])); 
-#endif
-#if STYLE == 10
-   sprintf (version, "%s version %s, %s", GAME_NAME, GAME_VERSION, GAME_DATE);
-#endif
+#endif /* DEBUG */
    optr = obuf + http_offset;
    while (1)
    {
@@ -7355,13 +7451,7 @@ void send_page(void)
             case 'R': if (*(conf [BUTTON]) == 'Y')     /* Want submit button? */
                          cptr = SUBMIT_BUTTON;  break;
             case 'L': cptr = tlimit;            break; /* Timeout limit */
-#if STYLE > 10
             case 'V': cptr = GAME_ID;           break;
-#else
-#  if STYLE > 1
-            case 'V': cptr = version;           break;
-#  endif
-#endif
             default:
                fprintf (stderr, "Bad substitution tag in page.html: ='%c'!", key);
                exit (1);

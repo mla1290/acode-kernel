@@ -1,5 +1,9 @@
 /* adv0.h: A-code kernel - copyleft Mike Arnautov 1990-2014.
+ * Licensed under the Modified BSD Licence (see the supplied LICENCE file). 
  *
+ * 05 Jan 15   MLA             Moved special char definitions from adv00.c.
+ *                             Added html_ok as extern for use in adv01.c.
+ * 22 Dec 14   BTB             Added IOS.
  * 24 May 07   Stuart Munro    Added check for _MSC_EXTENSIONS.
  *                             Also defined __STDC__ explicitly as 1.
  * 01 May 07   Stuart Munro    Bug: Added STDC definition of procs[]().
@@ -8,6 +12,31 @@
 #if (defined(__cplusplus) || defined(_MSC_EXTENSIONS)) && !defined(__STDC__)
 #  define __STDC__ 1
 #endif
+
+#ifdef IOS
+#  define move adv_move
+#endif
+
+#define SW_START     '\377'
+#define SW_BREAK     '\376'
+#define HOLDER       '\375'
+#define IGNORE_EOL   '\373'
+#define NEST_TEXT    '\372'
+#define QUOTE_START  '\371'
+#define TAG_START    '\370'
+#define TAG_END      '\367'
+#define NBSP         '\366'
+#define BLOCK_START  '\365'
+#define BLOCK_END    '\364'
+#define CENTRE_START '\363'
+#if STYLE >= 10
+#  ifdef DWARVEN
+#     define DWARVISH  '\362'
+#  endif /* DWARVEN */
+#  define VHOLDER      '\361'
+#endif /* STYLE */
+#define PARA_START     '\360'
+#define PARA_END       '\357'
 
 #ifdef FILE
 #  undef FILE
@@ -145,3 +174,5 @@ extern short *varbits;
 #ifdef ALL
 extern int value_all;
 #endif /* ALL */
+extern int html_ok;
+

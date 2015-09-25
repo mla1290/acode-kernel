@@ -1,0 +1,180 @@
+
+Niew in 12.64
+
+1. Fixed calculation of block-centre offset.
+
+2. Added pure JavaScript support (use Emscripten to generate JS code).
+   This uses IndexedDB browser storage and this is currently known to
+   be compatible with Firefox (version 4 and higher), Chrome (version 11
+   and higher and IE (version 10 and higher).
+
+3. Added JS compilation symbol alongside IOS. Both imply ADVLIB.
+
+------------------------------------------------------------------------
+
+New in 12.63 version (since 12.54)
+
+1. Fixed prompt_line being undefined if NO_READLINE is specified.
+
+2. BROWSER mode no longer ignores BROWSER NONE in the config file.
+
+3. The -C command like keyword can be used with the CGI mode with
+   the result of output being plain text rather than HTML.
+
+4. Added ADVLIB mode for platforms such as iOS, which insist on being
+   in control of the main loop.
+
+5. Added emscripten support for producing a pure Javascript version.
+
+------------------------------------------------------------------------
+
+New in A-code 12.54
+
+1. Bug fix. Command line parsing no longer aborts after some of
+   the keywords.
+
+2. Bug fix. UNDO or REDO can no longer leave the game expecting 
+   a yes/no answer to a question asked just before the point
+   to which the game has reverted.
+     
+------------------------------------------------------------------------
+
+New in A-code 12.53
+
+1. Bug fix. Game no longer crashes in the console mode in response to
+   player hitting Ctrl-D when prompted for input.
+
+------------------------------------------------------------------------
+
+New in A-code 12.52
+
+1. Bug fix for MS Windows and DOS. The RESTORE command no longer causes 
+   infinite loop if there are no saved games.
+
+------------------------------------------------------------------------
+
+New in A-code 12.51 (12.40 to 12.50 never released)
+
+1. Glk support dropped. On all platforms the game executable
+   uses browser display or runs in the console window.
+
+2. Added TIMEOUT section to the config file.
+
+3. Added COLOUR SURROUND to the config file.
+
+4. When creating a config file, BROWSER section is now platform
+   sensitive, differentiating Windows and non-Windows installs.
+
+5. Readline is now linked by default, suppressed by -DNO_READLINE.
+
+6. Acode directory is now by default .acode on non-Windows platforms.
+   If this is not found, the acode one is used instead.
+
+------------------------------------------------------------------------
+
+New in A-code 12.39 (12.35 to 12.38 never released)
+
+1. Re-wrote code for locating acode.inf.
+
+2. Added macro platform definitions (LINUX, UNIX, MACOS, WINDOWS)
+   replacing the PLATFORM macro.
+
+3. Fixed some text formatting bugs.
+
+4. Fixed STYLE 1 orphan handling.
+
+5. Fixed STYLE 1 segfault in response to an unknown command word.
+
+6. Finished version 12 CGI mode.
+
+------------------------------------------------------------------------
+
+New in A-code 12.34
+
+1. Fixed logging mechanism so that the prompt line is written into the
+   log too.
+
+2. Finally got around to sorting out A-code 12 CGI mode.
+
+3. In HTML modes (CGI or browser) prompt type is signalled by the first
+   letter of the complete message, not by the last one.
+
+4. Fixed handling of texts declared as fragments part-way through
+   the text rather than in the text declaration.
+
+------------------------------------------------------------------------
+
+New in A-code 12.33
+
+1. The DEFAULT directive now differentiates between failure to
+   find any target and a failure to find a unique tagret. These outcomes
+   are signalled by AGR2 being set to 0 or AMBIGWORD respectively.
+
+------------------------------------------------------------------------
+
+New in A-code 12.32.
+
+1. Fixed the the debug mode DUMP command (implemented in show_data()).
+
+2. Fixed display width definition in browser mode.
+
+------------------------------------------------------------------------
+
+New in A-code 12.31.
+
+1. Fixed output formatting bug, which in some circumstances suppressed
+   the command prompt.
+
+2. Added "SHOW WIDTH <number>" directive to acode.conf. This specifies
+   in pixels the width of the actual display area. Default value 700. 
+
+3. Added "SURROUND <colour>" directive to acode.conf to specify the
+   colour of the window outside the display area. Defaults to dark grey.
+
+NB: the new directives will not show automatically in your acode.conf.
+You can add them manually, or remove (or rename) the existing
+acode.conf, which will result in a new one being created by the game.
+
+------------------------------------------------------------------------
+
+New in A-code 12.30.
+
+1. Worked around the problem caused by a change in xdg-open.
+
+------------------------------------------------------------------------
+
+New in A-code 12.29.
+
+1. Some changes to acdc (version 12.18) -- see the acdc README and NEWS
+   files.
+
+2. All A-code game executables now accept the -v keyword, which causes
+   the display of the game version number, the version number of the
+   acdc translator used to create the C sources, and the A-code kernel
+   version.
+
+3. Game's home is now acode/<gamename> which is, if required,
+   automatically created in the player's home directory. This is where
+   games will be saved and old saved games will be looked for. It is
+   also where log files (if any) are created by default.
+
+4. As a temporary measure in this version, on game startup other likely
+   places are checked for containing older saved games, and any saved
+   games fuond are copied into the game's home directory.
+
+5. Games now have a persistent state, so that if a game is interrupted
+   in some manner, rather than cleanly exited, it will automatically
+   restart the next time at the same point. Use the -n invocation command
+   line option to avoid restarting an interrupted game.
+
+6. On Linux/Unix/MacOS, the default game mode is to use a local browser
+   for its display. Use the -C command invocation line option to use
+   old-fashioned, console display with readline command recall and editing.
+   On windows only the "dumb" DOS prompt mode is available, unless the
+   game is built to use the Glk library.
+
+                                           Mike Arnautov
+                                           mla@mipmip.org
+
+==========================================================================
+

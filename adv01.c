@@ -1,5 +1,8 @@
 /* adv01.c: A-code kernel - copyleft Mike Arnautov 1990-2014.
+ * Licensed under the Modified BSD Licence (see the supplied LICENCE file). 
  *
+ * 22 Dec 14   MLA             ADVLIB added.
+ *             BTB & MLA       IOS added.
  * 04 Apr 13   MLA             BUG: Don't loop in MS code when no saved game.
  * 10 Mar 13   MLA             Added MSDOS overrides.
  * 07 Mar 13   MLA             Bug: If FILE defined, undef it!
@@ -33,6 +36,34 @@
 #     define NO_SLOW
 #  endif
 #endif
+
+#ifdef IOS
+#  ifndef ADVLIB
+#    define ADVLIB
+#  endif
+#  include "ios.h"
+#endif /* IOS */
+
+#ifdef JS
+#  ifndef ADVLIB
+#    define ADVLIB
+#  endif
+#endif /* JS */
+
+#ifdef ADVLIB
+#  ifndef NO_READLINE
+#    define NO_READLINE
+#  endif
+#  ifndef CONSOLE
+#    define CONSOLE
+#  endif
+#endif /* ADVLIB*/
+
+#if defined(__unix__) || defined(__linux__)
+#  if !defined(HAVE_UNISTD_H) && !defined(NO_UNISTD_H)
+#    define HAVE_UNISTD_H
+#  endif /* *_UNISTD_H */
+#endif /* __unix__ || __linux__ */
 
 #if defined(CONSOLE)&&defined(BROWSER)
 #  undef BROWSER
@@ -146,8 +177,6 @@ int delay;
 
 /*===========================================================*/
 
-#if STYLE >= 11
-
 #if WINDOWS
 #  define SEP '\\'
 #else
@@ -158,34 +187,6 @@ int delay;
 #include <dirent.h>
 #endif /* !WINDOWS */
 #include <stdio.h>
-
-#ifdef __STDC__
-void make_copy (char *srcdir, char *name, char *sfx)
-#else
-void make_copy (srcdir, name, sfx)
-char *srcdir;
-char *name;
-char *sfx;
-#endif
-{
-   char path [128];
-   FILE *infile;
-   FILE *outfile;
-   int c;
-   
-   sprintf (path, "%s%c%s.%s", srcdir, SEP, name, sfx);
-   if ((infile = fopen (path, "rb")) == NULL) return;
-   sprintf (path, "%s.%s", name, sfx);
-   if ((outfile = fopen (path, "wb")) == NULL)
-   {
-      fclose (infile);
-      return;
-   }
-   while ((c = fgetc (infile)) != EOF)
-      fputc (c, outfile);
-   fclose (infile);
-   fclose (outfile);
-}
 
 /*====================================================================*/
 
@@ -213,13 +214,12 @@ char *name;
 #if WINDOWS
    if (action < 1 && strlen (name) > 57)
       return (0);
-   sprintf (buf, "%s\\*.adv", action >= 0 ? "." : name);
+   sprintf (buf, "%s\\*.adv", ".");
    if ((hFind = FindFirstFile (buf, &wfd)) == INVALID_HANDLE_VALUE)
 #else /* !WINDOWS */
-   if ((dp = opendir(action >= 0 ? "." : name)) == NULL)
+   if ((dp = opendir(".")) == NULL)
 #endif /* WINDOWS */
       return (0);
-
    while (1)
    {
 #if WINDOWS
@@ -238,31 +238,39 @@ char *name;
       if ((de = readdir(dp)) == NULL)
          break;
       strncpy (buf, de->d_name, 63);
-      if (*buf == '.' ||
+      if ((action >= 0 && *buf == '.') ||
          strcmp (sfx = buf + strlen(buf) - 4, ".adv") != 0)
             continue;
 #endif /* WINDOWS */
-      if (action < 0)
+      *sfx = '\0';
+      cnt++;
+
+      if (action != 0)
       {
-         struct stat stat_buf;
-         if (stat (buf, &stat_buf) == -1)
+         if (action < 0)
          {
-            *sfx = '\0';
-            make_copy (name, buf, "adv");
-            make_copy (name, buf, "adh");
+           if (action-- != -1)
+             outchar ('|');
+           PRINTF (buf);
          }
-      }
-      else 
-      {
-         *sfx = '\0';
-         if (action > 0)
+         else
          {
-            if (cnt) PRINTF (", ")
+            if (cnt > 1) PRINTF (action == cnt ? " and " : ", ")
+            if (html_ok)
+            {
+               outchar (TAG_START);
+               outchar ('b');
+               outchar (TAG_END);
+            }
             PRINTF (buf)
+            if (html_ok)
+            {
+               outchar (TAG_START);
+               outchar ('/');
+               outchar ('b');
+               outchar (TAG_END);
+            }
          }
-         else if (name && cnt == 0)
-            strcpy (name, buf);
-         cnt++;
       }
    }
 #if WINDOWS
@@ -275,8 +283,6 @@ char *name;
    if (action > 0) PRINTF (".\n");
    return (cnt);
 }
-
-#endif /* STYLE */
 
 /*====================================================================*/
 #ifdef BROWSER
