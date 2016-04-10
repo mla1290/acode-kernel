@@ -1,6 +1,9 @@
-/* adv01.c: A-code kernel - copyleft Mike Arnautov 1990-2014.
+/* adv01.c: A-code kernel - copyleft Mike Arnautov 1990-2016.
  * Licensed under the Modified BSD Licence (see the supplied LICENCE file). 
  *
+ * 03 Mar 16   MLA             Removed non-ANSI C support.
+ * 24 Feb 16   MLA             Added shutterm() for OSX build (OSX sucks too!)
+ * 21 Feb 16   MLA             Offloaded some macro fiddling to adv0.h.
  * 22 Dec 14   MLA             ADVLIB added.
  *             BTB & MLA       IOS added.
  * 04 Apr 13   MLA             BUG: Don't loop in MS code when no saved game.
@@ -21,6 +24,10 @@
  * 14 May 07   MLA             Split off from adv00.c (M$ sucks!)
  */
  
+#define ADV01
+#include "adv1.h"
+#include "adv0.h"
+
 #ifdef FILE
 #  undef FILE
 #endif
@@ -37,141 +44,33 @@
 #  endif
 #endif
 
-#ifdef IOS
-#  ifndef ADVLIB
-#    define ADVLIB
-#  endif
-#  include "ios.h"
-#endif /* IOS */
-
-#ifdef JS
-#  ifndef ADVLIB
-#    define ADVLIB
-#  endif
-#endif /* JS */
-
-#ifdef ADVLIB
-#  ifndef NO_READLINE
-#    define NO_READLINE
-#  endif
-#  ifndef CONSOLE
-#    define CONSOLE
-#  endif
-#endif /* ADVLIB*/
-
-#if defined(__unix__) || defined(__linux__)
-#  if !defined(HAVE_UNISTD_H) && !defined(NO_UNISTD_H)
-#    define HAVE_UNISTD_H
-#  endif /* *_UNISTD_H */
-#endif /* __unix__ || __linux__ */
-
-#if defined(CONSOLE)&&defined(BROWSER)
-#  undef BROWSER
-#endif
-#if !defined(MSDOS)&&(defined(WIN32)||defined(_WIN32)||defined(__WIN32)||defined (_WIN32_)||defined(__WIN32__))
-#  define WINDOWS 1
-#  define UNIX 0
-#  define MACOS 0
-#else
-#  define WINDOWS 0
-#  define UNIX 1
-#  define MACOS 0
-#  if defined(_MACH_)
-#     undef MACOS
-#     define MACOS 1
-#  endif
-#endif
-
-#if (defined(__cplusplus) || defined(_MSC_EXTENSIONS)) && !defined(__STDC__)
-#  define __STDC__ 1
-#endif
-
-#ifdef CONSOLE
-#  ifdef BROWSER
-#     undef BROWSER
-#  endif
-#else
-#  define BROWSER
-#endif
-
-#if defined(HAVE_CONFIG_H)
-#  include "config.h"
-#  if defined (HAVE_STRING_H)
-#     include <string.h>
-#  else /* ! HAVE_STRING_H */
-#     if defined(HAVE_STRINGS_H)
-#        include <strings.h>
-#     endif /* HAVE_STRINGS_H */
-#  endif /* HAVE_STRING_H */
-#  if defined(HAVE_STDLIB_H)
-#     include <stdlib.h>
-#  endif /* HAVE_STDLIB_H */
-#  if defined (HAVE_SYS_STAT_H)
-#     include <sys/stat.h>
-#  endif /* HAVE_SYS_STAT_H */
-#  if defined (HAVE_SYS_TYPES_H)
-#     include <sys/types.h>
-#  endif /* HAVE_SYS_TYPES_H */
-#  if defined(HAVE_UNISTD_H)
-#     include <unistd.h>
-#  else /* ! HAVE_UNISTD_H */
-#     if WINDOWS
-#        define unlink _unlink
-#     else /* !WINDOWS */
-         int unlink(char *);
-#     endif /* WINDOWS */
-#  endif /* HAVE_UNISTD_H */
-#else /* ! HAVE_CONFIG_H */
-#  include <string.h>
-#  include <stdlib.h>
-#  if defined(HAVE_UNISTD_H)
-#     include <unistd.h>
-#  else
-#     if WINDOWS
-#        define unlink _unlink
-#     else /* !WINDOWS */
-         int unlink(char *);
-#     endif /* WINDOWS */
-#  endif
-#  include <sys/types.h>
-#  include <sys/stat.h>
-#  include <fcntl.h>
-#endif /* HAVE_CONFIG_H */
+#include <fcntl.h>
 #include <time.h>
-
-#include "adv0.h"
-#define ADV01
-#include "adv1.h"
 
 #define PRINTF(X)    { char *ptr = X; while (*ptr) outchar(*ptr++); }
 
-#ifdef BROWSER
+#if HTTP
 #  if WINDOWS
 #     include <ws2tcpip.h>
 #     include <winsock2.h>
 #     define sclose closesocket
 #  else /* !WINDOWS */
-#    include <sys/socket.h>
-#    include <netinet/in.h>
-#    include <arpa/inet.h>
-#    include <netdb.h>
-#    define sclose close
+#     include <sys/socket.h>
+#     include <netinet/in.h>
+#     include <arpa/inet.h>
+#     include <netdb.h>
+#     define sclose close
 #  endif /* WINDOWS */
-#endif
+#endif /* HTTP */
 
-#if WINDOWS
+#if WINDOWS && !defined(MSDOS)
 #  include <windows.h>
 #endif /* WINDOWS */
 
 /*===========================================================*/
 
 #if !defined(NO_SLOW) && WINDOWS
-#ifdef __STDC__
 void my_usleep (int delay)
-#else
-void my_usleep (delay)
-int delay;
-#endif
 { SleepEx(delay, 0); return; }
 #endif /* !NO_SLOW && WINDOWS */
 
@@ -183,46 +82,40 @@ int delay;
 #  define SEP '/'
 #endif
 
-#if !WINDOWS
+#if !WINDOWS || defined(MSDOS)
 #include <dirent.h>
 #endif /* !WINDOWS */
 #include <stdio.h>
 
 /*====================================================================*/
 
-#ifdef __STDC__
 int process_saved (int action, char *name)
-#else
-int process_saved (action, name)
-int action;
-char *name;
-#endif
 {
    char buf[64];
-#if WINDOWS
+#if WINDOWS && !defined(MSDOS)
    int cnt = -1;
    WIN32_FIND_DATA wfd;
    HANDLE hFind; 
-#else /* !WINDOWS */
+#else /* !WINDOWS || MSDOS*/
    int cnt = 0;
    DIR *dp;
    struct dirent *de;
-#endif /* WINDOWS */
+#endif /* WINDOWS && !MSDOS */
    char *sfx;
    *(buf + 63) = '\0';
 
-#if WINDOWS
+#if WINDOWS && !defined(MSDOS)
    if (action < 1 && strlen (name) > 57)
       return (0);
    sprintf (buf, "%s\\*.adv", ".");
    if ((hFind = FindFirstFile (buf, &wfd)) == INVALID_HANDLE_VALUE)
-#else /* !WINDOWS */
+#else /* !WINDOWS || MSDOS */
    if ((dp = opendir(".")) == NULL)
-#endif /* WINDOWS */
+#endif /* WINDOWS && !MSDOS */
       return (0);
    while (1)
    {
-#if WINDOWS
+#if WINDOWS && !defined(MSDOS)
       if (cnt >= 0)
       {
          if (FindNextFile(hFind, &wfd) == 0)
@@ -234,14 +127,14 @@ char *name;
       if (*buf == '.' || *buf == '_' ||
          strcmp (sfx = buf + strlen(buf) - 4, ".adv") != 0)
             continue;
-#else /* !WINDOWS */
+#else /* !WINDOWS || MSDOS */
       if ((de = readdir(dp)) == NULL)
          break;
       strncpy (buf, de->d_name, 63);
       if ((action >= 0 && *buf == '.') ||
          strcmp (sfx = buf + strlen(buf) - 4, ".adv") != 0)
             continue;
-#endif /* WINDOWS */
+#endif /* WINDOWS && !MSDOS */
       *sfx = '\0';
       cnt++;
 
@@ -273,11 +166,11 @@ char *name;
          }
       }
    }
-#if WINDOWS
+#if WINDOWS && !MSDOS
       FindClose(hFind);
-#else /* !WINDOWS */
+#else /* !WINDOWS || MSDOS */
       closedir (dp);
-#endif /* WINDOWS */
+#endif /* WINDOWS && !MSDOS */
 
    if (cnt == 0) return (0);
    if (action > 0) PRINTF (".\n");
@@ -285,7 +178,47 @@ char *name;
 }
 
 /*====================================================================*/
-#ifdef BROWSER
+#if OSX && !defined(ADVLIB)
+/* This is a horrible OSX kludge to shut the unwanted terminal window
+ * when the game exits.
+*/
+void shutterm(int init)
+{
+   static char winname[80];
+   char reply[80];
+   char query[160];
+   FILE *fh;
+   int i = 0;
+   if (init == 0)
+   {
+      *winname = '\0';
+      fh = popen("osascript -e 'tell application \"Terminal\" to get the name of window 1'", "r");
+      fgets(winname, 79, fh);
+      pclose(fh);
+      if (strstr(winname, "-bash ")) *winname = '\0'; /* Running from bash! */
+   }
+   else
+   {
+      while (1)
+      {
+         *reply = '\0';
+         sprintf(query, "osascript -e 'tell application \"Terminal\" to get the name of window %d' 2>/dev/null", ++i);
+         fh = popen(query, "r");
+         fgets(reply, 79, fh);
+         pclose(fh);
+         if (!*reply) break;
+         if (strcmp(reply, winname) == 0)
+         {
+            sprintf(query, "osascript -e 'tell application \"Terminal\" to close window %d'", i);
+            system(query);
+            break;
+         }
+      }
+   }
+}
+#endif /* OSX && !ADVLIB */
+/*====================================================================*/
+#if HTTP
 
 int lsock = 0;
 int wsock = 0;
@@ -403,6 +336,9 @@ int browser_read (char *command, int time_limit)
       if (!ready)
       {
         fprintf (stderr, "*** No response from browser! ***\n");
+#if OSX && !defined(ADVLIB)
+        shutterm(1);
+#endif /* OSX && !ADVLIB */
         exit (1);
       }
       adrlen = sizeof(radr);
@@ -572,6 +508,10 @@ void invoke_browser (char *exe, int timeout)
       if (fork() > 0) exit (0);  /* Parent process exits */
       setsid ();                 /* New process group */
       close (0); close (1); close (2); /* Close stdin, stdout, stderr */
+#if OSX && !defined(ADVLIB)
+   shutterm(0);
+#endif /* OSX && !ADVLIB */
+   
       i = open ("/dev/null", O_RDWR); dup (i); dup (i); /* Reopen them */
    }
 #endif /* ! DEBUG && ! DIRECT*/
@@ -588,5 +528,5 @@ void invoke_browser (char *exe, int timeout)
    printf ("=== Exiting %s\n", "invoke_browser"); 
 #endif /* DEBUG */
 }
-#endif /* BROWSER */
+#endif /* HTTP */
 /**********************************************************************/

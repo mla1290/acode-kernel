@@ -1,8 +1,24 @@
-/* adv00.c: A-code kernel - copyright Mike Arnautov 1990-2015.
+/* adv00.c: A-code kernel - copyright Mike Arnautov 1990-2016.
  * Licensed under the Modified BSD Licence (see the supplied LICENCE file). 
  */
-#define KERNEL_VERSION "12.65, 16 May 2015"
+#define KERNEL_VERSION "12.70, 10 Apr 2016"
 /*
+ * 09 Apr 16   MLA        Replaced cgi with mode plus compilation symbols.
+ *                        Offloaded build mode evaluation to adv0.h
+ * 04 Apr 16   MLA        Replaced setjmp/jongjmp with the loop mechanism.
+ * 31 Mar 16   MLA        Added ENTNAME support.
+ * 08 Mar 16   MLA        bug: When splitting output lines suppress lead blanks.
+ * 03 Mar 16   MLA        Removed non-ANSI C support.
+ * 29 Feb 16   MLA        Added exec 17 and 18.
+ *                        Added call to INIT_PROC() before in progress restore.
+ * 28 Feb 16   MLA        BUG: say() now *does* handle non-pointer vars.
+ * 24 Feb 16   MLA        On OSX, call shutterm(1) on exit.
+ * 21 Feb 16   MLA        Offloaded some macro fiddling to adv0.h.
+ * 18 Feb 16   MLA        Console mode on Macs: force terminal window close.
+ * 10 Feb 16   MLA        Bug: fixed -C keyword for new Mac builds.
+ * 05 Feb 16   MLA        Bug: fixed initial restore in library mode.
+ *                        Bug: don't search vocabulary if no matching!
+ * 03 Feb 16   MLA        Bug: test("html") should simply return 1 if JS!
  * 16 May 15   MLA        Bug: must get input if quitting but end_pause!
  * 21 Apr 15   BTB        Bug: need ios.h in adv00.c too!
  * 19 Apr 15   MLA        Bug: fixed block centering.
@@ -355,7 +371,7 @@
  * 11 Dec 90   MLA        Variable keyword counts for MOVE and SMOVE.
  * 25 Nov 90   MLA        Outline now checks for zero break_count.
  * 23 Nov 90   MLA        VMS compilation. Also, "unvoided" declarations
-< *                        of advcpy and srand - Prime's CI -DEBUG didn't
+ *                        of advcpy and srand - Prime's CI -DEBUG didn't
  *                        like them being cast to voids subsequently.
  * 22 Nov 90   MLA        Changed 'here' and 'near' to 'ishere' and
  *                        'isnear' to avoid MSC clashes.
@@ -366,8 +382,10 @@
  */
 
 /* Remember that adv1.h and all the symbol fiddling must precede adv0.h! */
-
 #include "adv1.h"
+#include "adv0.h"
+
+/* DOS executables are dumb console only */
 
 #ifdef MSDOS
 #  ifndef CONSOLE
@@ -384,52 +402,7 @@
 #  endif
 #endif
 
-#if defined(MSDOS)||defined(WIN32)||defined(_WIN32)||defined(__WIN32)||defined (_WIN32_)||defined(__WIN32__)
-#  define WINDOWS 1
-#  define UNIX 0
-#  define MACOS 0
-#else
-#  if defined(__MACH__)
-#     define WINDOWS 0
-#     define UNIX 1
-#     define MACOS 1
-#  else
-#     if defined(__unix__) || defined(__linux__)
-#        define WINDOWS 0
-#        define UNIX 1
-#        define MACOS 0
-#     endif
-#  endif
-#endif
-
-#ifdef IOS
-#  ifndef ADVLIB
-#    define ADVLIB
-#  endif
-#  include "ios.h"
-#  define fopen advopen
-#endif /* IOS */
-
-#if defined(JS)
-#  ifndef ADVLIB
-#    define ADVLIB
-#  endif
-#endif /* JS */
-
-#ifdef ADVLIB
-#  ifndef NO_READLINE
-#    define NO_READLINE
-#  endif
-#  ifndef CONSOLE
-#    define CONSOLE
-#  endif
-#endif /* ADVLIB*/
-
-#if defined(__unix__) || defined(__linux__)
-#  if !defined(HAVE_UNISTD_H) && !defined(NO_UNISTD_H)
-#    define HAVE_UNISTD_H
-#  endif /* *_UNISTD_H */
-#endif /* __unix__ || __linux__ */
+/* Deal with all possible combinations of handling the game's data set */
 
 #ifdef USEDB
 #  undef USEDB
@@ -517,6 +490,8 @@
 #  define USEDB
 #endif
 
+/* Windows does its own thing, of course! */
+
 #if WINDOWS
 #  define HOME "HOMEPATH"
 #  define EOL "\r\n"
@@ -534,58 +509,6 @@
 #include <ctype.h>
 #include <stdarg.h>
 #include <errno.h>
-#if defined(HAVE_CONFIG_H)
-#  include "config.h"
-#  if defined (HAVE_STRING_H)
-#     include <string.h>
-#  else /* ! HAVE_STRING_H */
-#     if defined(HAVE_STRINGS_H)
-#        include <strings.h>
-#     endif /* HAVE_STRINGS_H */
-#  endif /* HAVE_STRING_H */
-#  if defined(HAVE_STDLIB_H)
-#     include <stdlib.h>
-#  endif /* HAVE_STDLIB_H */
-#  if defined (HAVE_SYS_STAT_H)
-#     include <sys/stat.h>
-#  endif /* HAVE_SYS_STAT_H */
-#  if defined (HAVE_SYS_TYPES_H)
-#     include <sys/types.h>
-#  endif /* HAVE_SYS_TYPES_H */
-#  if defined(HAVE_UNISTD_H)
-#     include <unistd.h>
-#  else /* ! HAVE_UNISTD_H */
-#     if WINDOWS && !defined(MSDOS)
-#        define unlink _unlink
-#     else /* !WINDOWS */
-         int unlink(char *);
-#     endif /* WINDOWS */
-#  endif /* HAVE_UNISTD_H */
-#else /* ! HAVE_CONFIG_H */
-#  include <string.h>
-#  include <stdlib.h>
-#  if defined(HAVE_UNISTD_H)
-#     include <unistd.h>
-#  else
-#     if WINDOWS && !defined(MSDOS)
-#        define unlink _unlink
-#     else /* !WINDOWS */
-         int unlink(char *);
-#     endif /* WINDOWS */
-#  endif
-#  include <sys/types.h>
-#  include <sys/stat.h>
-#endif /* HAVE_CONFIG_H */
-
-#define HTTP_HEADER \
-  "HTTP/1.0 200 OK\n" \
-  "Host: localhost\n" \
-  "Server: A-code/1.1\n" \
-  "Cache-Control: no-store\n" \
-  "Content-Type: text/html\n" \
-  "Content-Length: "
-
-int http_offset = 0;
 
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -596,23 +519,16 @@ int http_offset = 0;
  * extern char *strncpy ();
  * extern void exit ();
  */
-#ifdef __STDC__
-   void shift_up (char *);
-   void shift_down (char *, int);
-   extern int process_saved (int, char *);
-#else
-   void shift_up();
-   void shift_down();
-   extern int process_saved();
-#endif
+ 
+#if HTTP
+   int http_offset = 0;
+   char *brbuf;
+   int brbuflen = 0;
+#endif /* HTTP */
 
-#ifdef CONSOLE
-#  ifdef BROWSER
-#     undef BROWSER
-#  endif
-#else
-#  define BROWSER
-#endif
+void shift_up (char *);
+void shift_down (char *, int);
+extern int process_saved (int, char *);
 
 #ifndef NO_READLINE
 #include "readline/readline.h"
@@ -620,8 +536,6 @@ int http_offset = 0;
 char *prompt_line;
 char *prompt_ptr;
 #endif /* NO_READLINE */
-
-#include "adv0.h"
 
 FILE *text_file;
 FILE *gv_file;
@@ -638,7 +552,7 @@ char *dump_name = NULL;
 
 void outbuf (int);
 int value_all;
-jmp_buf loop_back;
+int loop = 0;
 #ifdef USEDB
    char *dbs_dir = NULL;
 #endif /* USEDB */
@@ -660,6 +574,7 @@ int *location = (int *)(IMAGE + OFFSET_LOCS);
 short *objbits = (short *)(IMAGE + OFFSET_OBJBIT);
 short *placebits = (short *)(IMAGE + OFFSET_LOCBIT);
 short *varbits = (short *)(IMAGE + OFFSET_VARBIT);
+int *objlocs = NULL;
 #ifdef UNDO
    char image [sizeof (IMAGE)];
    int inhand [LOCS_SIZE];
@@ -723,20 +638,24 @@ int amatch = 1;
 int html_ok = 1;
 int compress;
 char compact[2];
+
 #if defined(PAUSE) || WINDOWS
    int end_pause = 1;
 #else
    int end_pause = 0;
-#endif
-#ifdef BROWSER
-#  include <fcntl.h>
-   char *brbuf;
-   int brbuflen = 0;
-#endif
-int cgi = 0;
-char cgicom [160];
+#endif /* PAUSE or WINDOWS */ 
+
+#if CGI
+int mode = CGI;
+#else
+int mode = 0;
+#endif /* CGI */
+
+char extcom [160];
+
+int mode;
 char truname [80];
-char *cgi_name;
+char *autoname;
 
 #include "adv3.h"
 #include "adv4.h"
@@ -789,14 +708,10 @@ int location_all;
 int cps = 0;
 #ifndef NO_SLOW
 #  if WINDOWS
-#     ifdef __STDC__
-         extern void my_usleep (int);
-#     else 
-         extern void my_usleep();
-#     endif
+      extern void my_usleep (int);
 #     define usleep(X) my_usleep(X)
 #  else /* ! WINDOWS */
-#     if ! defined(HAVE_UNISTD_H)
+#     if defined(NO_UNISTD)
          void usleep(int);
 #     endif
 #  endif /* WINDOWS */
@@ -823,7 +738,9 @@ char *lp;
 
 #define RESTORING "Restoring game in progress...\n\n"
 
-#ifndef ADVLIB
+char *conf[] = { NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
+                 NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL };
+
 #define BROWEXE    0
 #define BG         1
 #define FG         2
@@ -844,16 +761,11 @@ char *lp;
 #define PINGTIME  17
 #define GRACETIME 18
 
-char *conf[] = { NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
-                 NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL };
-
 #define SUBMIT_BUTTON "&nbsp;&nbsp;<input type=\"submit\" name=\"Submit\", value=\"Submit\">"
 
 int timeout = 100;
-#endif /* ADVLIB */
 
 /******************************************************************/
-#if !defined(NOVARARGS) && defined(__STDC__)
 int anyof (int first, ...)
 {
     va_list ap;
@@ -893,112 +805,14 @@ int keyword (int first, ...)
     va_end (ap);
     return (1);
 }
-#else /* not (NOVARARGS && __STDC_)*/
 /*===========================================================*/
-#ifdef __STDC__
-int anyof (int l0,int l1,int l2,int l3,int l4,int l5,int l6,int l7,
-           int l8,int l9,int l10,int l11,int l12,int l13,int l14,int l15)
-#else
-int anyof (l0,l1,l2,l3,l4,l5,l6,l7,l8,l9,l10,l11,l12,l13,l14,l15)
-int l0,l1,l2,l3,l4,l5,l6,l7,l8,l9,l10,l11,l12,l13,l14,l15;
-#endif
-{
-   if (l0 == -1) return (0);
-   if (KEY (l0)) return (1);
-   if (l1 == -1) return (0);
-   if (KEY (l1)) return (1);
-   if (l2 == -1) return (0);
-   if (KEY (l2)) return (1);
-   if (l3 == -1) return (0);
-   if (KEY (l3)) return (1);
-   if (l4 == -1) return (0);
-   if (KEY (l4)) return (1);
-   if (l5 == -1) return (0);
-   if (KEY (l5)) return (1);
-   if (l6 == -1) return (0);
-   if (KEY (l6)) return (1);
-   if (l7 == -1) return (0);
-   if (KEY (l7)) return (1);
-   if (l8 == -1) return (0);
-   if (KEY (l8)) return (1);
-   if (l9 == -1) return (0);
-   if (KEY (l9)) return (1);
-   if (l10 == -1) return (0);
-   if (KEY (l10)) return (1);
-   if (l11 == -1) return (0);
-   if (KEY (l11)) return (1);
-   if (l12 == -1) return (0);
-   if (KEY (l12)) return (1);
-   if (l13 == -1) return (0);
-   if (KEY (l13)) return (1);
-   if (l14 == -1) return (0);
-   if (KEY (l14)) return (1);
-   if (l15 == -1) return (0);
-   if (KEY (l15)) return (1);
-   return (0);
-}
-/*===========================================================*/
-#ifdef __STDC__
-int keyword (int l0,int l1,int l2,int l3,int l4,int l5,int l6,int l7,
-             int l8,int l9,int l10,int l11,int l12,int l13,int l14,int l15)
-#else
-int keyword (l0,l1,l2,l3,l4,l5,l6,l7,l8,l9,l10,l11,l12,l13,l14,l15)
-int l0,l1,l2,l3,l4,l5,l6,l7,l8,l9,l10,l11,l12,l13,l14,l15;
-#endif
-{
-   if (l0 == -1) return (1);
-   if (!KEY (l0)) return (0);
-   if (l1 == -1) return (1);
-   if (!KEY (l1)) return (0);
-   if (l2 == -1) return (1);
-   if (!KEY (l2)) return (0);
-   if (l3 == -1) return (1);
-   if (!KEY (l3)) return (0);
-   if (l4 == -1) return (1);
-   if (!KEY (l4)) return (0);
-   if (l5 == -1) return (1);
-   if (!KEY (l5)) return (0);
-   if (l6 == -1) return (1);
-   if (!KEY (l6)) return (0);
-   if (l7 == -1) return (1);
-   if (!KEY (l7)) return (0);
-   if (l8 == -1) return (1);
-   if (!KEY (l8)) return (0);
-   if (l9 == -1) return (1);
-   if (!KEY (l9)) return (0);
-   if (l10 == -1) return (1);
-   if (!KEY (l10)) return (0);
-   if (l11 == -1) return (1);
-   if (!KEY (l11)) return (0);
-   if (l12 == -1) return (1);
-   if (!KEY (l12)) return (0);
-   if (l13 == -1) return (1);
-   if (!KEY (l13)) return (0);
-   if (l14 == -1) return (1);
-   if (!KEY (l14)) return (0);
-   if (l15 == -1) return (1);
-   if (!KEY (l15)) return (0);
-   return (1);
-}
-#endif /* NOVARARGS && __STDC__*/
-/*===========================================================*/
-#ifdef __STDC__
 int irand (int less_then)
-#else
-int irand (less_then)
-int less_then;
-#endif
 {
    rseed = (((rseed << 10) + rseed) / 13) & 32767;
    return (rseed % less_then);
 }
 /*===========================================================*/
-#ifdef __STDC__
 int jrand (int less_then)
-#else
-int jrand (less_then)
-int less_then;
-#endif
 {
    int rvalue;
    rvalue = (((rseed << 10) + (int) time (NULL)) / 13) & 32767;
@@ -1201,11 +1015,7 @@ int btfind (short *root, char *word)
    return (0);
 }
 /*===========================================================*/
-#ifdef __STDC__
 void word_update (void)
-#else
-void word_update ()
-#endif
 {
    char *aptr = text_buf;
    char *zptr;
@@ -1233,12 +1043,7 @@ void word_update ()
 #  define get_char(X) text[X]
 #else /* !PLAIN || (!MEMORY && !PRELOADED)*/
 /*===========================================================*/
-#ifdef __STDC__
 char get_char (int char_addr)
-#else
-char get_char (char_addr)
-int char_addr;
-#endif
 {
 #ifndef PLAIN
    int mask;
@@ -1339,11 +1144,7 @@ gotit:
 
 #if defined(SWAP) || defined(READFILE)
 /*===========================================================*/
-#ifdef __STDC__
 void file_oops (void)
-#else
-void file_oops ()
-#endif
 {
    PRINTF ("\n \nUnable to retrieve required data! Sorry...\n");
    outbuf (1);
@@ -1355,15 +1156,7 @@ void file_oops ()
 #endif /* PLAIN && MEMORY */
 /* ENDPRIVATE */
 /*===========================================================*/
-#ifdef __STDC__
 void voc (int word, int what, int test, int vtext)
-#else
-void voc (word, what, test, vtext)
-int word;
-int what;
-int test;
-int vtext;
-#endif
 {
    int index;
    int tc;
@@ -1395,18 +1188,13 @@ int vtext;
    }
 }
 /*===========================================================*/
-#ifdef __STDC__
+#if CONSOLE
 int scrchk (char *iptr)
-#else
-int scrchk (iptr)
-int clear;
-char *iptr;
-#endif
 {
    static int lincnt = 0;
    char reply [160];
 
-   if (cgi) return (0);
+   if (mode != CONSOLE) return (0);
    if (!iptr || com_file) 
    {
       lincnt = 0;
@@ -1444,6 +1232,7 @@ char *iptr;
    }
    return (0);
 }
+#endif /* CONSOLE */
 /*====================================================================*/
 char *advalloc (int len)
 {
@@ -1675,12 +1464,16 @@ void format_buffer (int terminate, int html)
    int type;
    int ignore_eol = 0;
    
-#ifdef ADVLIB
+#if HTTP
+   optr = obuf + http_offset + (html ? 1 : 0);
+#else
+#if CONSOLE
+   optr = obuf;
+#else /* !CONSOLE */
    optr = obuf + 1;
    *obuf = ' ';
-#else
-   optr = obuf + http_offset + (html ? 1 : 0);
-#endif /* ADVLIB */
+#endif /* CONSOLE */
+#endif /* HTTP */
    
 /* Prepare the output opening and skip any introductory line feeds. */
 
@@ -1721,11 +1514,11 @@ void format_buffer (int terminate, int html)
          case NBSP:
             if (html) oputs ("&nbsp;");
             else
-#ifdef ADVLIB
+#if ADVLIB
               oputc (' ');
 #else
               oputc (*iptr);
-#endif
+#endif /* ADVLIB */
             break;
          case QUOTE_START:
          case BLOCK_START:
@@ -1800,9 +1593,13 @@ void format_buffer (int terminate, int html)
 #else
       else if (frag)                         tf = 'q';   /* Query */
 #endif /* ADVCONTEXT */
-      else if (cgi == 'b' && compress)       tf = 'c';   /* Compressed text */
+      else if (mode == HTTP && compress)     tf = 'c';   /* Compressed text */
       else                                   tf = 't';   /* Ordinary text */
+#if HTTP
       *(obuf + http_offset) = tf;
+#else
+      *obuf = tf;
+#endif /* HTTP */
    }
    else if (frag)
    {
@@ -1864,13 +1661,17 @@ void stretch_line (char *iptr, char t)
 /*====================================================================*/
 void outtext (char t)
 {
+#if HTTP
    char *iptr = obuf + http_offset;
+#else
+   char *iptr = obuf;
+#endif /* HTTP */
    char *jptr = iptr;
    char *bptr;
    char c;
    int i;
-   int mx = cgi ? 80 : Maxlen;
-   int mg = cgi ? 0 : Margin;
+   int mx = mode != CONSOLE ? 80 : Maxlen;
+   int mg = mode != CONSOLE ? 0 : Margin;
    
    while (1)
    {
@@ -1892,7 +1693,9 @@ void outtext (char t)
          while (iptr < jptr) showchar (*iptr++, t);
          if (*jptr == '\0') break;
          showchar (*iptr++, t);
+#if CONSOLE && !HTTP
          if (*(iptr - 1) == '\n' && t != 'L' && scrchk (iptr)) break;
+#endif /* CONSOLE */
          continue;
       }
       if (!bptr) bptr = jptr;
@@ -1904,40 +1707,45 @@ void outtext (char t)
       if (jptr < bptr) *jptr = '\0';   /* Also temporary! */
       if (*iptr != '\n')
          for (i = 0; i < mg; i++) showchar (' ', t);
+      while (*iptr == ' ') iptr++; /* When splitting line ignore lead blanks */
       if (justify)
          stretch_line (iptr, t);
       else
          while (*iptr)
          {
             showchar (*iptr++, t);
+#if CONSOLE && !HTTP
             if (*(iptr - 1) == '\n' && t != 'L' && scrchk (iptr)) break;
+#endif /* CONSOLE */
          }
       if (c && *(bptr - 1) != '\n') showchar ('\n', t);
       if (!c) break;
       if (jptr < bptr) *jptr = ' ';    /* Restore the blank */
       *bptr = c;                       /* Restore whatever it was */
       iptr = bptr;
+#if CONSOLE && !HTTP
       if (t != 'L' && scrchk (iptr)) break;
+#endif /* CONSOLE */
    }
 }
 /*====================================================================*/
 void outbuf (int terminate)
 {
-#ifdef BROWSER
-   int first = 0;
-#endif
+#if HTTP
+   int first = 0;     /* Default to not sending HTTP header */
+#endif /* HTTP */
    if (!obuf)
    {
-#ifdef BROWSER
-      first = 1;
-#endif
+#if HTTP
+      first = 1;      /* Just starting, so may need to send the header */
+#endif /* HTTP */
       obuf = advalloc (4096);
       oblen = 4096;
    }
-#ifdef BROWSER
-   if (first)
+#if HTTP
+   if (first)         /* Send HTTP header is only just starting */
    {
-      if (cgi == 'b') 
+      if (mode == HTTP) 
       {
          end_pause = 0;
          http_offset = sizeof (HTTP_HEADER) + 8;
@@ -1946,7 +1754,7 @@ void outbuf (int terminate)
       else
          puts ("");
    }
-#endif 
+#endif /* HTTP */
    if (lptr > text_buf)
    {
       char *eptr = lptr - 1;
@@ -1962,43 +1770,35 @@ void outbuf (int terminate)
          lptr = eptr + 1;
          *lptr = '\0';
       }
-/*
- *      if (eptr + 2 < lptr)
- *         lptr = eptr + 2;
- *      *lptr = '\0';
- */
    }
    
-   if (log_file || !cgi)
+   if (log_file || mode == CONSOLE)
       format_buffer (terminate, 0);    /* Non-HTML format for the log */
    if (log_file)
    {
       outtext ('L');
 #ifndef NO_READLINE
-      if (log_file && cgi)
+      if (log_file && mode != CONSOLE)
          fprintf(log_file, prompt_line);
 #endif /* NO_READLINE */
    }
-   if (!cgi)
+   if (mode == CONSOLE)
       outtext ('C');
    else
    {
       format_buffer (terminate, html_ok);    /* Need HTML format */
-#ifndef ADVLIB
+#if CONSOLE || CGI
 #ifndef NO_READLINE
       prompt_ptr = prompt_line;
       *prompt_line = '\0';
 #endif /* NO_READLINE */
-#ifdef BROWSER
-      if (cgi == 'b')
-         browser_write (obuf);
-      else
-#endif /* BROWSER */
-      {
-         fputs (obuf, stdout);
-         fflush (stdout);
-      }
-#endif /* !ADVLIB */
+#if HTTP
+      browser_write (obuf);
+#else /* !HTTP */
+      fputs (obuf, stdout);
+      fflush (stdout);
+#endif /* HTTP */
+#endif /* CONSOLE || CGI*/
    }
 
 /* Now zap the text buffer */
@@ -2025,14 +1825,7 @@ void outbuf (int terminate)
 
 #ifdef NEST_TEXT
 
-#ifdef __STDC__
 void nested_say (int addr, int key, int qualifier)
-#else
-void nested_say (addr, key, qualifier)
-int addr;
-int key;
-int qualifier;
-#endif
 {
    int refno;
    int type;
@@ -2048,7 +1841,7 @@ int qualifier;
       key = VOC_FLAG;
    else if (type == 3)
    {
-      key = VAR_FLAG | VOC_FLAG;
+      key = VAR_FLAG | VALUE_FLAG;
       qualifier = 0;
    }
 
@@ -2057,6 +1850,20 @@ int qualifier;
       char *cptr = (refno == ARG1) ? arg1_word : arg2_word;
       while (*cptr) outchar (*cptr++);
    }
+#ifdef ENTNAME
+   else if (refno == ENTNAME)
+   {
+      int ta = ent_name [value [ENTNAME]];
+      int tc = get_char(ta);
+      while (tc)
+      {
+        outchar(tc);
+        tc = get_char (++ta);
+      }
+/*      char *cptr = text + ent_name [value [ENTNAME]]; */
+/*      while (*cptr) outchar (*cptr++); */
+   }
+#endif /* ENTNAME */
    else
    {
       if (type < 2) qualifier = 0;
@@ -2066,14 +1873,7 @@ int qualifier;
 }
 #endif /* NEST_TEXT */
 /*===========================================================*/
-#ifdef __STDC__
 void say (int key, int what, int qualifier)
-#else
-void say (key, what, qualifier)
-int key;
-int what;
-int qualifier;
-#endif
 {
    int index;
    int offset;
@@ -2131,7 +1931,18 @@ int qualifier;
          (tmp != BADWORD && tmp != AMBIGWORD))
 #  endif
 #endif /* STYLE */
-            what = tmp;
+      {
+         if (*bitword(what) != -1)    /* Not a pointer! */
+         {
+            char valbuf[32];
+            sprintf(valbuf, "%d", tmp);
+            cp = valbuf;
+            while (*cp)
+               outchar(*cp++);
+            return;
+         }
+         what = tmp;
+      }
       else
             voc_flag = 1;
    }
@@ -2390,16 +2201,11 @@ next_char:
    }
 
 shutup:
-   if (quip_flag) longjmp (loop_back, 1);
+   if (quip_flag) loop = 1;
    return;
 }
 /*===========================================================*/
-#ifdef __STDC__
 void outchar (char text_char)
-#else
-void outchar (text_char)
-char text_char;
-#endif
 {
    if (!text_buf)
    {
@@ -2414,37 +2220,6 @@ char text_char;
       lptr = text_buf + text_len;
    }
 
-#ifdef OBSOLETE
-#ifdef TAG_START
-   
-   if (text_char == TAG_START)
-   {
-      html_tag = 1;
-      if (cgi)
-      {
-         *lptr++ = '<';
-         text_len++;
-      }
-      return;
-   }
-   else if (html_tag)
-   {
-      if (text_char == TAG_END)
-      {
-         html_tag = 0;
-         if (cgi)
-         {
-            text_len++;
-            *lptr++ = '>';
-         }
-         return;
-      }
-   }
-   if (html_tag && !cgi)
-      return;
-
-#endif /* TAG_START */
-#endif /* OBSOLETE */
 
    if (text_char == '\n')
    {
@@ -2486,11 +2261,7 @@ char text_char;
 
 #ifdef UNDO
 /*===========================================================*/
-#ifdef __STDC__
 void save_changes (void)
-#else
-void save_changes ();
-#endif
 {
    char *iptr;
    char *optr;
@@ -2499,7 +2270,7 @@ void save_changes ();
 
    if (value [ARG1] <= BADWORD || value [ARG2] <= BADWORD ||
 #ifdef ADVCONTEXT
-       value [ADVCONTEXT] > 1 ||  cgi == 'y' ||
+       value [ADVCONTEXT] > 1 ||  mode == HAVECMD ||
 #endif
        value [ARG1] == UNDO || value [ARG1] == REDO)
           return;
@@ -2540,7 +2311,7 @@ void save_changes ();
                diffsz += 8192;
                dptr = diffs + doffset;
             }
-            if (cnt || cgi < 'x')       /* ??? */
+            if (cnt || CONSOLE)       /* ? Why CONSOLE ? (MLA) */
             {
                *dptr++ = cnt / 256;
                *dptr++ = cnt % 256;
@@ -2561,11 +2332,7 @@ void save_changes ();
 }
 #endif /* UNDO */
 /*===========================================================*/
-#ifdef __STDC__
 void close_files (void)
-#else
-void close_files ()
-#endif
 {
    if (com_file)
       fclose (com_file);
@@ -2586,13 +2353,7 @@ void close_files ()
 #endif
 }
 /*===========================================================*/
-#ifdef __STDC__
 void getinput (char *inbuf, int insize)
-#else
-void getinput (inbuf, insize)
-char *inbuf;
-int insize;
-#endif
 {
    char *cptr;
 #ifndef NO_READLINE
@@ -2607,7 +2368,7 @@ int insize;
 #endif
 #ifdef ADVCONTEXT
    if (text_len > 3 && value [ADVCONTEXT] == 0 &&
-      !query_flag && cgi != 'b')
+      !query_flag)
 #else /* !ADVCONTEXT */
    if (text_len > 3 && !query_flag && !quitting)
 #endif /* ADVCONTEXT */
@@ -2633,10 +2394,12 @@ int insize;
    if (!*text_buf && !quitting)
       PRINTF (compress ? "? " : "\n? ");
 #endif /* NO_READLINE */
-   if (cgi != 'b' && cgi != 'y' && *text_buf)
+   if (mode != HTTP && mode != HAVECMD && *text_buf)
    {
       outbuf (0);
+#if CONSOLE
       scrchk (NULL);
+#endif /* CONSOLE */
    }
 #if STYLE >= 11
    upcase = 1;
@@ -2647,23 +2410,23 @@ int insize;
 #  ifdef PROMPTED
    bitmod ('s', ADVCONTEXT, PROMPTED);
 #  endif
-   if (cgi == 'x' || cgi == 'z')
+   if (mode == STARTGAME || mode == NEEDCMD || mode == CGI)
    {
       special (998, &value [0]);
+#if ADVLIB || CGI
+      loop = 2; return;
+#else
 #if STYLE >= 11
       if (word_buf) free (word_buf);
       word_buf = NULL;
 #endif /* STYLE >= 11 */
-#ifdef ADVLIB
-      longjmp (loop_back, 2);
-#else
       exit (value [ADVCONTEXT]);
 #endif /* ADVLIB */
    }
-   if (cgi == 'y')
+   if (mode == HAVECMD)
    {
-      strncpy (inbuf, cgicom, insize - 1);
-      cgi = 'z';
+      strncpy (inbuf, extcom, insize - 1);
+      mode = NEEDCMD;
       if (log_file)
          fprintf (log_file,"\nREPLY: %s\n", inbuf);
       return;
@@ -2677,7 +2440,7 @@ int insize;
       while (1)
       {
 #ifndef NO_READLINE
-         if (!cgi) 
+         if (mode != CONSOLE) 
          {
             printf (prompt_line);
             *prompt_line = '\0';
@@ -2697,7 +2460,7 @@ int insize;
          if (strncmp (mybuf, "REPLY:", 6) == 0)
          {
             strncpy (inbuf, mybuf + 6, insize);
-            if (!cgi)
+            if (mode != CONSOLE)
                printf ("%s%s%s\n", lastbuf, inbuf, compress ? "" : "\n");
             else
             {
@@ -2740,20 +2503,20 @@ int insize;
          }
       }
    }
-#ifdef BROWSER
-   if (com_file == NULL && cgi == 'b')
+#if HTTP
+   if (com_file == NULL && mode == HTTP)
    {
       outbuf (0);
       (void) browser_read (inbuf, timeout);
    }
-#endif /* BROWSER */
-   if (com_file == NULL && cgi != 'b' && (!quitting || end_pause))
+#endif /* HTTP */
+   if (com_file == NULL && mode != HTTP && (!quitting || end_pause))
 #ifdef NO_READLINE
       fgets (inbuf, insize, stdin);
 #else
    {
       char *rdl;
-      if (cgi)
+      if (mode != CONSOLE)
          fgets (inbuf, insize, stdin);
       else
       {
@@ -2772,14 +2535,14 @@ int insize;
             *inbuf = 0;
       }
    }
-   if (log_file && cgi != 'b')
+   if (log_file && mode != HTTP)
    {
       fputs (prompt_line, log_file);
       fflush (log_file);
    }
 #endif /* NO_READLINE */
 #ifdef ADVCONTEXT
-   if (cgi == 'x') cgi = 'z';
+   if (mode == STARTGAME) mode = NEEDCMD;
 #endif
    *(inbuf + insize - 1) = '\0';
    *(inbuf + insize - 2) = '\n';
@@ -2797,13 +2560,7 @@ int insize;
 #endif
 }
 /*===========================================================*/
-#ifdef __STDC__
 void advcpy (char *word_buff, int word_addr)
-#else
-void advcpy (word_buff, word_addr)
-char *word_buff;
-int word_addr;
-#endif
 {
    int wlen;
 
@@ -2814,13 +2571,7 @@ int word_addr;
          return;
 }
 /*===========================================================*/
-#ifdef __STDC__
 void fake (int which_arg, int refno)
-#else
-void fake (which_arg, refno)
-int which_arg;
-int refno;
-#endif
 {
    int word;
    
@@ -2842,14 +2593,8 @@ int refno;
    return;
 }
 /*===========================================================*/
-#ifdef __STDC__
+/* key: 0 is "default", 1 is initial "doall", 2 is continued "doall" */
 void default_to (int key, int place, int type)
-#else
-void default_to (key, place, type)
-int key;   /* 0 is "default", 1 is initial "doall", 2 is continued "doall" */
-int place;
-int type;
-#endif
 {
    int index;
    int fits;
@@ -2949,24 +2694,17 @@ failed:
    value [ARG2] = 0;
    return;
 }
-
+/*===========================================================*/
 #if STYLE >= 11
 #ifdef TYPO
-/*===========================================================*/
-#ifdef __STDC__
 void report_typo (int ovoc, int olen)
-#else
-void report_typo (ovoc, olen)
-int ovoc;
-int olen;
-#endif
 {
    char save_char;
 
    strncpy (orig, tp [tindex], WORDSIZE);
 #ifdef DWARVEN
    if (value [DWARVEN]) shift_down (orig, WORDSIZE);
-#endif
+#endif /* DWARVEN */
    say (QUAL_FLAG, TYPO, ORIG);
    advcpy (orig, ovoc);
    save_char = *(orig + olen);
@@ -2981,30 +2719,12 @@ int olen;
    *orig = '\0';
    PRINTF("\n\n");
 }
-#endif
+#endif /* TYPO */
 /*===========================================================*/
-#ifdef __STDC__
 void find_word (int *type, int *refno, int *tadr, int which_arg, int gripe)
-#else
-void find_word (type, refno, tadr, which_arg, gripe)
-int *type;
-int *refno;
-int *tadr;
-int which_arg;
-int gripe;
-#endif
 #else /* STYLE < 11 */
-/*===========================================================*/
-#ifdef __STDC__
 void find_word (int *type, int *refno, int *tadr, int which_arg)
-#else
-void find_word (type, refno, tadr, which_arg)
-int *type;
-int *refno;
-int *tadr;
-int which_arg;
-#endif
-#endif
+#endif /* STYLE >= */
 {
    int bottom, middle, top;
 #if STYLE > 1
@@ -3025,6 +2745,11 @@ int which_arg;
    *type = -1;
    strncpy (myword, 
       which_arg == 0 ? orphan_word : tp [tindex], WORDSIZE);
+   if (amatch < 0)
+   {
+      *refno = BADWORD;
+      goto done;
+   }
 #ifdef DWARVEN
    if (value [DWARVEN]) shift_down (myword, WORDSIZE);
 #endif /* DWARVEN */
@@ -3146,6 +2871,45 @@ int which_arg;
    }
 
 #if STYLE >= 11
+
+#ifdef ENTNAME
+   {
+      int i;
+      char cp;
+      for (i = 0; i <= LVAR; i++)
+      {
+         if (i >= LVERB && i < FVAR)
+            continue;
+         wp = myword;
+         va = *(ent_name + i);
+         if (va == 0)
+            continue;
+         while (1)
+         {
+            cp = get_char (va);
+            if (cp == '.') cp = '_';
+            if (*wp != cp) break;
+            if (*wp == '\0')
+            {
+               exact = 1;
+               break;
+            }
+            va++;
+            wp++;
+         }
+         if (exact)
+         {
+            *refno = i;
+            *tadr = *(ent_name + i);
+            if (i <= LOBJ)
+               *type = 0;
+            else
+               *type = 1;
+            goto done;
+         }
+      }
+   }
+#endif /* ENTNAME */
 
    if (*refno == BADWORD && amatch > 0)
    {
@@ -3305,11 +3069,7 @@ done:
    return;
 }
 /*===========================================================*/
-#ifdef __STDC__
 void parse (void)
-#else
-void parse ()
-#endif
 {
    char *cptr, *lptr;
    char sep;
@@ -3389,12 +3149,7 @@ void parse ()
    return;      
 }
 /*===========================================================*/
-#ifdef __STDC__
 void input (int textref)
-#else
-void input (textref)
-int textref;
-#endif
 {
    int type;
    int refno;
@@ -3454,7 +3209,7 @@ int textref;
       strncpy (orphan_word, arg1_word, 20);
    }
 #if defined(ADVCONTEXT) && STYLE >= 11
-   else if (cgi > 'b' && *orphan_word && orphan == 0)
+   else if (ADVLIB && *orphan_word && orphan == 0)
       find_word (&type, &orphan, &tadr, 0, 0);
 #endif
    else
@@ -3502,11 +3257,14 @@ restart:
          old_demands = locate_demands;
          old_faults = locate_faults;
 #endif /* LOC_STATS */
+#if CONSOLE
          scrchk (NULL);
+#endif /* CONSOLE */
          if (textref)
             say (0, textref, 0);
          if (! lptr) lptr = text_buf;
          getinput (comline, 160);
+         if (loop) return;         
          strncpy (raw_comline, comline, 160);
 #ifdef ADVCONTEXT
          if (value [ADVCONTEXT] && (*comline == '\n' || *comline == '\0'))
@@ -3518,7 +3276,9 @@ restart:
          }
 #endif /* ADVCONTEXT */
       }
+#if CONSOLE
       scrchk (NULL);
+#endif /* CONSOLE */
       parse ();
    }
 
@@ -3775,23 +3535,22 @@ got_command:
    return;
 }
 /*===========================================================*/
-#ifdef __STDC__
 int query (int textref)
-#else
-int query (textref)
-int textref;
-#endif
 {
    char reply [10];
    char *rp;
    int which = -1;
    if (textref >= 0) say (0, textref, 0);
+#if CONSOLE
    else scrchk (NULL);
+#endif /* CONSOLE */
    while (which < 0)
    {
       query_flag = 1;
       getinput (reply, 10);
+#if CONSOLE
       scrchk (NULL);
+#endif /* CONSOLE */
 #ifdef DWARVEN
       if (value [DWARVEN])  shift_down (reply, 10);
 #endif /* DWARVEN */
@@ -3814,13 +3573,7 @@ int textref;
    return which;
 }
 /*===========================================================*/
-#ifdef __STDC__
 void make_name (char *file_name, char *save_name)
-#else
-void make_name (file_name, save_name)
-char *file_name;
-char *save_name;
-#endif
 {
    char *cptr;                 /* Discardable pointer to file_name */
 
@@ -3850,12 +3603,7 @@ char *save_name;
    return;
 }
 /*===========================================================*/
-#ifdef __STDC__
 int check_version (FILE *infile)
-#else
-int check_version (infile)
-FILE *infile;
-#endif
 {
    int majvalg = 0;
    int minvalg = 0;
@@ -3893,12 +3641,7 @@ FILE *infile;
    return (0);
 }
 /*===========================================================*/
-#ifdef __STDC__
 int memstore (int key)
-#else
-int memstore (key)
-int key;
-#endif
 {
 /* Key -1  check for existence of memory image
  * Key 0   true memory save
@@ -3906,31 +3649,29 @@ int key;
  * Key 2   temporary memory save
  * Key 3   temporary memory restore
  */
-#ifdef ADVCONTEXT
+#if CGI
    FILE *memory_file = NULL;
-#endif /* ADVCONTEXT */
+#endif /* CGI */
    static char *image_base = NULL;   /* True memory save area */
    static char *image_temp = NULL;   /* Temp save over restore area */
    char *image_ptr;
-#ifdef ADVCONTEXT
+#if CGI
    char *fname = (char *)(key < 2 ? ".M.adv" : ".T.adv");
    int result = 1;
-#endif /* ADVCONTEXT */
+#endif /* CGI */
 
    if (key < 0)
    {
-#ifdef ADVCONTEXT
-      if (cgi > 'b')
+#if CGI
+      if ((memory_file = fopen (fname, RMODE)) != NULL)
       {
-         if ((memory_file = fopen (fname, RMODE)) != NULL)
-         {
-            fclose (memory_file);
-            result = 0;
-         }
-         return (result);
+         fclose (memory_file);
+         result = 0;
       }
-#endif /* ADVCONTEXT */
+      return (result);
+#else 
       return (image_base ? 0 : 1);
+#endif /* CGI */
    }
 
    image_ptr = key < 2 ? image_base : image_temp;
@@ -3947,39 +3688,32 @@ int key;
             image_temp = image_ptr;
       }
       memcpy (image_ptr, IMAGE, IMAGE_SIZE);
-#ifdef ADVCONTEXT
-      if (cgi > 'b')
-      {
-         if ((memory_file = fopen (fname, WMODE)) != NULL &&
-            fwrite (image_base, 1, IMAGE_SIZE, memory_file) == IMAGE_SIZE)
-               result = 0;
-         if (memory_file)
-            fclose (memory_file);
-         return (result);
-      }
-#endif
+#if CGI
+      if ((memory_file = fopen (fname, WMODE)) != NULL &&
+         fwrite (image_base, 1, IMAGE_SIZE, memory_file) == IMAGE_SIZE)
+            result = 0;
+      if (memory_file)
+         fclose (memory_file);
+      return (result);
+#else
       return (0);
+#endif /* CGI */
    }
    else
    {
-#ifdef ADVCONTEXT
-      if (cgi > 'b')
-      {
-         if ((image_ptr = (char *) malloc (IMAGE_SIZE)) != NULL &&
-             (memory_file = fopen (fname, RMODE)) != NULL &&
-             (fread (image_ptr, 1, IMAGE_SIZE, memory_file)) == IMAGE_SIZE)
-                result = 0;
-         if (memory_file)
-            fclose (memory_file);
-         if (result)
-            return (1);
-      }
-      else if (image_ptr  == NULL)
+#if CGI
+      if ((image_ptr = (char *) malloc (IMAGE_SIZE)) != NULL &&
+          (memory_file = fopen (fname, RMODE)) != NULL &&
+          (fread (image_ptr, 1, IMAGE_SIZE, memory_file)) == IMAGE_SIZE)
+             result = 0;
+      if (memory_file)
+         fclose (memory_file);
+      if (result)
          return (1);
 #else
       if (image_ptr  == NULL)
          return (1);
-#endif /* ADVCONTEXT */
+#endif /* CGI */
       memcpy (IMAGE, image_ptr, IMAGE_SIZE);      
       return (0);
    }
@@ -4027,13 +3761,7 @@ int set_pdata (int offset, char val)
 /*===========================================================*/
 #endif /* STYLE > 11 */
 
-#ifdef __STDC__
 int special (int key, int *var)
-#else
-int special (key, var)
-int key;
-int *var;
-#endif
 {
    static char save_name [168];
    char file_name [168];
@@ -4081,15 +3809,15 @@ try_again:
       case 997:        /* Restore from context comline */
          if (key > 2)
          {
-            strncpy (arg2_word, cgi_name, WORDSIZE - 1);
-            make_name (cgi_name, save_name);
+            strncpy (arg2_word, autoname, WORDSIZE - 1);
+            make_name (autoname, save_name);
          }
          else
             make_name (file_name, save_name);
 #else /* !ADVCONTEXT */
       case 999:
          if (key == 999)
-            strncpy (file_name, cgi_name, WORDSIZE - 1);
+            strncpy (file_name, autoname, WORDSIZE - 1);
          else if (val == -1)
          {
             if (key == 1)
@@ -4103,10 +3831,10 @@ try_again:
                cnt = process_saved (0, file_name);
                if (cnt == 0)
                {
-                  if (cgi >= 'x')
+                  if (ADVLIB && mode != STARTGAME)
                   {
                      PRINTF("You have no saved games to restore.\n")
-                     longjmp (loop_back, 1);
+                     loop = 1; return;
                   }
                   PRINTF (
    "Can't see any saved games here, but you may know of some elsewhere.\n")
@@ -4119,14 +3847,16 @@ try_again:
                else
                {
                   PRINTF ("You have the following saved games: ")
-                  if (cgi < 'x')
+                  if (mode != STARTGAME && mode != HAVECMD)
                      process_saved (1, NULL);
                }
 #endif /* STYLE >=11 */
                PRINTF ("\nName of saved game to restore: ");
 	    }
             getinput (file_name, 16);
+#if CONSOLE
             scrchk (NULL);
+#endif /* CONSOLE */
 #ifdef DWARVEN
             if (value [DWARVEN]) shift_down (file_name, 16);
 #endif /* DWARVEN */
@@ -4161,7 +3891,8 @@ got_name:
             PRINTF ("\nAs you wish...\n");
 #endif /* ADVCONTEXT */
          }
-         else if (cgi > 'x' && (key == 999 || key == 997))
+         else if ((mode == HAVECMD || mode == NEEDCMD) && 
+           (key == 999 || key == 997))
          {
             if (key == 999)
                return (0);
@@ -4176,12 +3907,14 @@ got_name:
             *var = 1;
             return (0);
          }
-      case 998:
+      case 998:             /* Writing persistent state image */
          if (key == 998) 
          {
-            make_name (cgi_name, save_name);
+            make_name (autoname, save_name);
 #ifdef ADVCONTEXT
-            if (value [ADVCONTEXT] == 0 && cgi > 'b') value [ADVCONTEXT] = 1;
+#if ADVLIB
+            if (value [ADVCONTEXT] == 0) value [ADVCONTEXT] = 1;
+#endif /* ADVLIB */
             *qcon = value [ADVCONTEXT];
 #endif /* ADVCONTEXT */
          }
@@ -4217,7 +3950,7 @@ got_name:
          CHKSUM(IMAGE + OFFSET_LOCBIT, LOCBIT_SIZE)
          CHKSUM(IMAGE + OFFSET_VARBIT, VARBIT_SIZE)
 #ifdef ADVCONTEXT
-         if (cgi > 'b' && key == 998)
+         if (ADVLIB && key == 998)
          {
             CHKSUM(qwords, sizeof(qwords));
             CHKSUM(qvals, sizeof(qvals));
@@ -4226,7 +3959,7 @@ got_name:
          fwrite (&chksum, sizeof (int), 1, game_file);
          fwrite (tval, 1, sizeof(time_t), game_file);
          fwrite (IMAGE, 1, IMAGE_SIZE, game_file);
-         if (cgi > 'b' && key == 998)
+         if (ADVLIB && key == 998)
          {
             fwrite (qwords, sizeof (char), sizeof (qwords), game_file);
             fwrite (qvals, sizeof (char), sizeof (qvals), game_file);
@@ -4246,7 +3979,7 @@ got_name:
          {
             strcpy (save_name + strlen(save_name) - 3, "adh");
             if (((diffs && dptr > diffs + 4) || 
-               (cgi > 'b' && value [ADVCONTEXT] <= 1)) &&
+               (ADVLIB && value [ADVCONTEXT] <= 1)) &&
                   (game_file = fopen (save_name, WMODE)))
             {
                int len = dptr - diffs;
@@ -4265,7 +3998,7 @@ got_name:
 restore_it:
          *var = 0;
 #ifdef ADVCONTEXT
-         if (cgi == 'x')
+         if (mode == STARTGAME)
          {
             if (log_file)
                fprintf (log_file, "\nREPLY: restore %s\n", save_name);
@@ -4324,12 +4057,11 @@ restore_it:
             return (0);
          }
          chksav = 0;
-         if (cgi < 'x')
-         {
-            *var = memstore (2);
-            if (*var != 0)
-               return (0);
-         }
+#if CONSOLE
+         *var = memstore (2);
+         if (*var != 0)
+            return (0);
+#endif /* CONSOLE */
          if (scratch == NULL)
          {
             scratch = (char *) malloc (IMAGE_SIZE);
@@ -4364,7 +4096,7 @@ restore_it:
             fread (scratch, 1, imgsiz, game_file);
          }
 #if defined(ADVCONTEXT)
-         if (cgi > 'b' && key == 999)
+         if (ADVLIB && key == 999)
          {
             fread (qwords, sizeof (char), sizeof (qwords), game_file);
             fread (qvals, sizeof (char), sizeof (qvals), game_file);
@@ -4424,7 +4156,7 @@ restore_it:
             CHKSUM(scratch + plabo, plabs)
             CHKSUM(scratch + varbo, varbs)
 #ifdef ADVCONTEXT
-            if (cgi > 'b' && key == 999)
+            if (ADVLIB && key == 999)
             {
                CHKSUM(qwords, sizeof(qwords));
                CHKSUM(qvals, sizeof(qvals));
@@ -4514,10 +4246,13 @@ restore_it:
          strcpy (save_name + strlen(save_name) - 3, "adh");
          unlink (save_name);
          return (0);
+
       case 4:          /* Adv550 legacy - flush game cache */
+
       case 5:          /* Adv550 legacy - get prime time flag */
          *var = 0;
          return (0); 
+
       case 6:          /* Save value of a variable (only one can be saved!) */
 #if STYLE < 10
          PRINTF("Open at all times.\n");
@@ -4525,6 +4260,7 @@ restore_it:
          saved_value = *var;
 #endif
          return (0);
+
       case 7:          /* Restore saved variable value */
 #if STYLE < 10
          saved_value = *var;
@@ -4532,6 +4268,7 @@ restore_it:
          *var = saved_value;
 #endif
          return (0);
+
       case 8:          /* Get minutes since restored game dumped */
 #if STYLE < 10
          *var = saved_value;
@@ -4540,6 +4277,7 @@ restore_it:
          *var = 1 + (lval - game_time) / 60;      /* Be generous! */
 #endif
          return (0);
+
       case 9:         /* Fudge a value into ARG1 */
 #if STYLE < 10
          *var = 0;
@@ -4548,30 +4286,44 @@ restore_it:
          fake (1, *var);
 #endif
          return (0);
+
       case 10:        /* Fudge a value into ARG2 */
          value [ARG2] = *var;
          fake (2, *var);
          return (0);
+
       case 11:         /* Pretend player said "X X" instead of "X" */
          value [ARG2] = value [ARG1];
          strncpy (arg2_word, arg1_word, 20);
          value [STATUS] = 2;
          return (0);
+
       case 12:         /* Check for end of command */
          *var = (tp[tindex] == NULL);
          return (0);
+
 /*    case 13: */      /* Spare */
 #if STYLE > 10
       case 14:         /* Get persistent data item */
          *var = get_pdata (*var);
          return (0);
+
       case 15:         /* Store persistent data item */
       case 16:         /* Clear persistent data item */
          set_pdata (*var, key == 15 ? 1 : 0);
          return (0);
 #endif /* STYLE > 10 */
-/*    case 17: */        /* Spare */
-/*    case 18: */        /* Spare */
+
+      case 17:         /* Save locations of objects */
+         if (!objlocs)
+            if ((objlocs = (int *) advalloc (LOCS_SIZE)) != NULL)
+               memcpy(objlocs, location, LOCS_SIZE);
+         return (0);
+
+      case 18:         /* Get saved location of an object */
+         *var = objlocs ? objlocs[*var] : 0;
+         return (0);
+         
       case 19:    /* Fiddle justification */
          val = *var;
          justify = val < 2 ? val : 1 - justify;
@@ -4591,7 +4343,7 @@ restore_it:
          if (Margin < 0) Margin = 0;
          Maxlen = Linlen - 2 * Margin;
 #ifndef NO_READLINE
-         if (!cgi && !cps)
+         if (mode == CONSOLE && !cps)
          {
             int offset = prompt_ptr - prompt_line;
             prompt_line = advrealloc(prompt_line, 2 * Maxlen + 1);
@@ -4612,7 +4364,7 @@ restore_it:
          Margin = val;
          Maxlen = Linlen - val - val;
 #ifndef NO_READLINE
-         if (!cgi && !cps)
+         if (mode == CONSOLE && !cps)
          {
             int offset = prompt_ptr - prompt_line;
             prompt_line = advrealloc(prompt_line, 2 * Maxlen + 1);
@@ -4623,6 +4375,8 @@ restore_it:
 
       case 22:    /* Set screen depth */
          val = atoi (arg2_word);
+         if (val == 0)
+            val = *var;
          if (val < 4)
          {
             *var = 0;
@@ -4744,12 +4498,7 @@ restore_it:
 
 #ifdef USEDB
 /*===========================================================*/
-#ifdef __STDC__
 void create_db (char *dbfile)
-#else
-void create_db (dbfile)
-char *dbfile;
-#endif
 {
    FILE *db_file;
    char ch;
@@ -4794,14 +4543,7 @@ char *dbfile;
    exit (0);
 }
 /*===========================================================*/
-#ifdef __STDC__
 FILE *try_db (char *dbdir, char *dbname, int trim)
-#else
-FILE *try_db (dbdir, dbname, trim)
-char *dbdir;
-char *dbname;
-int trim;
-#endif
 {
    FILE *dbf;
    char *dptr;
@@ -4850,7 +4592,7 @@ int trim;
 #  define CONFFILE "acode.conf"
 #endif /* MSDOS */
 /*====================================================================*/
-#ifndef ADVLIB
+#if !ADVLIB
 void store_conf (int index, char *value)
 {
    if (*(conf + index) == NULL)
@@ -4868,7 +4610,7 @@ void store_conf (int index, char *value)
       strcpy (*(conf + index), value);
    }
 }
-#endif /* ADVLIB */
+#endif /* !ADVLIB */
 /*====================================================================*/
 void parse_line (char *line, char **tokens)
 {
@@ -4926,7 +4668,7 @@ char *recase (char *token, int cflag)
    return (token);
 }
 /*====================================================================*/
-#ifndef ADVLIB
+#if !ADVLIB
 void handle_token (int type, int attribute, char *aptr, int max, int *val)
 {
    char buf [16]; 
@@ -4987,6 +4729,7 @@ void handle_token (int type, int attribute, char *aptr, int max, int *val)
    }
 }
 /*====================================================================*/
+#if HTTP
 void check_browser (char *name)
 {
    struct stat stat_buf;
@@ -5031,6 +4774,7 @@ void check_browser (char *name)
       }
    }   
 }
+#endif /* HTTP */
 /*====================================================================*/
 /*
  * Process the configuration file.
@@ -5041,13 +4785,13 @@ void read_conf ()
    char *tkn [3];
    char *cptr;
    FILE *cfile = NULL;
-#ifdef BROWSER
+#if HTTP
    int use_default = 0;
    char *default_browser;   
 
 /* Different platfoms have different ways of invoking the default browser */
 
-   if (MACOS)
+   if (OSX)
       default_browser = "/usr/bin/open";
    else if (UNIX)
       default_browser = "/usr/bin/xdg-open";
@@ -5056,7 +4800,7 @@ void read_conf ()
         "c:\\windows\\system32\\rundll32.exe url.dll,FileProtocolHandler";
    else
       default_browser = "NONE";
-#endif /* BROWSER */
+#endif /* HTTP */
 
 /* Look for the config file */
 
@@ -5116,7 +4860,7 @@ void read_conf ()
          if (need_log)
          {
             if (aptr == NULL)
-               sprintf (log_path, "%s.log", cgi_name + 1);
+               sprintf (log_path, "%s.log", autoname + 1);
             else
             {
                struct stat stat_buf;
@@ -5127,7 +4871,7 @@ void read_conf ()
                   if (stat_buf.st_mode & S_IFREG)
                      strncpy (log_path, aptr, sizeof (log_path));
                   else if (stat_buf.st_mode & S_IFDIR)
-                     sprintf (log_path, "%s%c%s.log", aptr, SEP, cgi_name + 1);
+                     sprintf (log_path, "%s%c%s.log", aptr, SEP, autoname + 1);
                   else
                      *conf[LOGFILE] = 'N';
                }
@@ -5174,28 +4918,28 @@ void read_conf ()
             handle_token ('p', HEIGHT, aptr, 0, &Screen);
          Maxlen = Linlen - 2 * Margin;
       }
-#ifdef BROWSER
+#if HTTP
       else if (strcmp (*tkn, "BROWSER") == 0)  /* It's a browser specification */
       {
-         if (cgi == -1) continue;         /* Command line mode forced! */
+         if (mode == CONSOLE) continue;   /* Command line mode forced! */
          if (use_default) continue;       /* We'll be using the default one */
          if (conf [BROWEXE])      /* But we already have a valid browser! */
             continue;             /* So ignore the line */
          cptr = *(tkn + 1);       /* Look at second token */
          if (strcmp (cptr, "NONE") == 0)
          {
-            cgi = -1;
+            mode = 0;
             continue;
          }
          if (strcmp(cptr, "DEFAULT") == 0)
          {
             use_default = 1;      /* Note that default browser is to be used */
-            cgi = 'b';
+            mode = HTTP;
             continue;
          }
-         if ((UNIX && !MACOS && (strcmp (*(tkn + 1),   "LINUX") == 0)) ||
-             (UNIX && !MACOS && (strcmp (*(tkn + 1),    "UNIX") == 0)) ||
-             (MACOS          && (strcmp (*(tkn + 1),   "MACOS") == 0)) ||
+         if ((UNIX && !OSX && (strcmp (*(tkn + 1),   "LINUX") == 0)) ||
+             (UNIX && !OSX && (strcmp (*(tkn + 1),    "UNIX") == 0)) ||
+             (OSX          && (strcmp (*(tkn + 1),   "OSX") == 0)) ||
              (WINDOWS        && (strcmp (*(tkn + 1), "WINDOWS") == 0)))
                 cptr = *(tkn + 2);
          else
@@ -5255,12 +4999,12 @@ void read_conf ()
          else if (strncmp(cptr, "KEEP", 4) == 0)
             handle_token ('p', PINGTIME, aptr, -1, NULL);
       }
-#endif /* BROWSER */
+#endif /* HTTP */
    }
 
 /* Now set default values for anything still missing. */
 
-#ifdef BROWSER
+#if HTTP
    if (use_default)
       store_conf (BROWEXE, default_browser);
    else if (conf [BROWEXE] == NULL)
@@ -5289,7 +5033,7 @@ void read_conf ()
       store_conf (HISTORY, "200");
    if (conf [PXWIDTH] == NULL || atoi (conf [PXWIDTH]) <= 500)
       store_conf (PXWIDTH, "700");
-#endif /* BROWSER */
+#endif /* HTTP */
    if (conf [COMPACT] == NULL)
       handle_token ('c', COMPACT, compact, 0, &compress);
    if (conf [LOGFILE] == NULL)
@@ -5309,9 +5053,9 @@ void read_conf ()
    if (conf [HEIGHT] == NULL)
       handle_token ('p', HEIGHT, "24", 24, &Screen);
 
-#ifndef BROWSER
+#if !HTTP
    Maxlen = Linlen - 2 * Margin;
-#endif
+#endif /* !HTTP */
 
 /* Finally make GRACETIME hold the sum of the PINGTIME and GRACETIME values. */
 
@@ -5339,11 +5083,11 @@ char *cftext [] = {
    "#"EOL,
    "   BROWSER $BROWSER              # Environment variables get evaluated"EOL,
    "#  BROWSER NONE                  # Force console mode."EOL,
-#  if !MACOS
+#  if !OSX
    "#  BROWSER chromium-browser      # Google's chrome"EOL,
    "#  BROWSER firefox               # Mozilla's browser"EOL,
    "#  BROWSER konqueror             # KDE native browser"EOL,
-#  endif /* !MACOS */
+#  endif /* !OSX */
 #else /* !UNIX */
    "# A specific non-default browser may be specified by its full pathname"EOL,
    "# as in the blow IE example. If the pathname contains spaces, the whole"EOL,
@@ -5392,8 +5136,8 @@ char *cftext [] = {
    "# never know..."EOL,
    "#"EOL,
    "   TIMEOUT INVOCATION  30        # Up to 30 seconds to fully invoke browser"EOL,
-   "   TIMEOUT KEEPALIVE    4        # Keep-alive pings every 4 seconds"EOL,
-   "   TIMEOUT GRACETIME    4        # Grace time for delayed pings"EOL,
+   "   TIMEOUT KEEPALIVE    2        # Keep-alive pings every 4 seconds"EOL,
+   "   TIMEOUT GRACETIME    2        # Grace time for delayed pings"EOL,
    "#"EOL,
    "# Finally for the console mode only, some screen layout requirements."EOL,
 #endif /* MSDOS */
@@ -5416,14 +5160,9 @@ void make_conf (void)
    while (**cfptr) fputs (*cfptr++, cfile);
    fclose (cfile);  
 }
-#endif /* ADVLIB */
+#endif /* !ADVLIB */
 /*===========================================================*/
-#ifdef __STDC__
 int initialise (char *prog)
-#else
-int initialise (prog)
-char *prog;
-#endif
 {
 #ifdef MEMORY
    int text_bytes;
@@ -5501,7 +5240,7 @@ char *prog;
       else
          mainseed = atol (comline + strlen (GAME_ID) + 1);
    }
-   if (cgi < 'x')
+#if CONSOLE
    {
       struct stat stat_buf;
 #if WINDOWS
@@ -5520,7 +5259,6 @@ char *prog;
 /*
  * If necessary, create the config file.
  */
-#ifndef ADVLIB
       if (stat (CONFFILE, &stat_buf) != 0)
       {
          void make_conf (void);
@@ -5539,28 +5277,28 @@ char *prog;
          chdir (truname + 1);
       }
       read_conf(); /* Process the config file, if any */
-#endif /* !ADVLIB */
 
-      if (cgi <= 0)                /* need the default therefrom */
+      if (!mode)                /* need the default therefrom */
       {
          putchar ('\n');
          for (index = 0; index < Margin; index++)
             putchar (' ');
       }
-      PRINTF2("A-code kernel %s\n", KERNEL_VERSION);
+      if (!CGI || mode == STARTGAME)
+         PRINTF2("A-code kernel %s\n", KERNEL_VERSION);
    }
-
+#endif /* CONSOLE */
    if (*log_path)
    {
-#ifdef ADVLIB      
-      if (!log_file && (log_file = fopen (log_path, UMODE)) == NULL)
+#if CONSOLE
+      log_file = fopen (log_path, UMODE);
+      if (log_file)
+         fprintf (log_file, "%s: %u\n", GAME_ID, mainseed);
+      else
 #else
       if (!log_file && (log_file = fopen (log_path, conf[LOGFILE])) == NULL)
-#endif /* ADVLIB */
+#endif /* ADVLIB || CGI*/
          printf ("(Sorry, unable to open log file...)\n");
-      else 
-      if (cgi <= 'x')
-         fprintf (log_file, "%s: %u\n", GAME_ID, mainseed);
    }
 
    if (!text_buf)
@@ -5631,7 +5369,7 @@ void zap_dump (void)
    unlink (name);
 }
 /*===========================================================*/
-#ifndef ADVLIB
+#if !ADVLIB
 int parse_args(int argc, char **argv)
 {
    char *kwrd;
@@ -5682,7 +5420,7 @@ int parse_args(int argc, char **argv)
          else if (oc == '1' || oc == 'y') justify = 1;
          else justify = 1 - justify;
          handle_token ('b', JUSTIFY, justify ? "Y" : "N", 0, NULL);
-         cgi = -1;
+         mode = 0;
          continue;
       }
       else if (*kwrd == 'b')
@@ -5733,7 +5471,7 @@ int parse_args(int argc, char **argv)
 #ifndef NO_SLOW
       else if (*kwrd == 'o')
       {
-         cgi = -1;
+         mode = 0;
          if (oc)
          {
             cps = (atoi (opt)) / 10;
@@ -5752,20 +5490,20 @@ int parse_args(int argc, char **argv)
       else if (*kwrd == 'l')
       {
          if (oc) strncpy (log_path, opt, sizeof(log_path));
-         else sprintf (log_path, "%s.log", cgi_name + 1);
+         else sprintf (log_path, "%s.log", autoname + 1);
          *(log_path + sizeof (log_path) - 1) = '\0';
          store_conf (LOGFILE, UMODE);
       }
-#ifdef BROWSER
+#if HTTP
       else if (*kwrd == 'B')
       {
 #if WINDOWS
-         cgi = 'b';
+         mode = HTTP;
          if (oc) check_browser (opt);
 #else /* !WINDOWS */
          if (getenv ("DISPLAY"))
          {
-            cgi = 'b';
+            mode = HTTP;
             if (oc) check_browser (opt);
          }
          else
@@ -5774,10 +5512,10 @@ int parse_args(int argc, char **argv)
                   stderr);
 #endif /* WINDOWS */
       }
-#endif /* BROWSER */
+#endif /* HTTP */
       else if (*kwrd == 'C')
       {
-         if (cgi == 'b') cgi = -1;
+         if (CONSOLE) mode = CONSOLE;
          html_ok = 0;
       }
       else if (*kwrd == 'h')
@@ -5786,11 +5524,11 @@ int parse_args(int argc, char **argv)
          puts ("    -n                  force a new game (ignore an aborted one)");
          puts ("   [-r]<dumpfile>       restore game from dump");
          printf ("    -l[<logfile>]       log the game (by default in ~/" CONFDIR "/%s/)\n",
-            cgi_name + 1);
-#ifdef BROWSER
+            autoname + 1);
+#if HTTP
          puts ("    -C                  Force console (non-browser) display");
          puts ("    -B[browser]         Force display through browser (default)");
-#endif /* BROWSER */
+#endif /* HTTP */
          puts ("    -b[0|1|all]         invert or specify blank line suppression level");
          puts ("    -p[0|1]             invert or specify pausing before exit");
 #ifdef USEDB
@@ -5801,11 +5539,11 @@ int parse_args(int argc, char **argv)
          if (undo_def != -2)
             puts ("    -u{0|1|none}        override default UNDO status");
 #endif /* UNDO */
-#ifdef BROWSER
+#if HTTP
 #ifndef MSDOS
          puts ("\nThese options force console mode display:");
 #endif /* MSDOS */
-#endif /* BROWSER */
+#endif /* HTTP */
          puts ("    -j[0|1]             invert or specify right-justification of text");
          puts ("    -s<W>.<H>[.<M>]     set screen size and margin");
 #ifndef MSDOS
@@ -5818,7 +5556,7 @@ int parse_args(int argc, char **argv)
       }
       else if (*kwrd == 's')
       {
-         cgi = -1;
+         mode = 0;
          val = strtol (opt, &opt, 10);
          if (val == 0) val = 32767;
          if (val >= 16 && val <= 32767)  
@@ -5870,48 +5608,67 @@ int parse_args(int argc, char **argv)
 #endif /* UNDO */
 
 #ifdef ADVCONTEXT
-      else if (*kwrd == 'x' || *kwrd == 'y')
+      else if (*kwrd == 'x' || *kwrd == 'y' || *kwrd == '\0')
       {
-         cgi = *kwrd;
-         strncpy (cgicom, opt, sizeof (cgicom));
+         mode = *kwrd == 'x' ? STARTGAME : HAVECMD;
+         strncpy (extcom, opt, sizeof (extcom));
+         if (*kwrd != 'x')
+         {
+            while (--argc)
+            {
+               argv++;
+               if (sizeof(extcom) - strlen(extcom) < strlen(*argv) + 2)
+                  continue;
+               strcat (extcom, " ");
+               strcat (extcom, *argv);
+            }
+            break;
+         }
          if (*log_path == '\0')
          {
-            strcpy (log_path, cgi_name + 1);
+            strcpy (log_path, autoname + 1);
             strcat (log_path, ".log");
             store_conf (LOGFILE, UMODE);
          }
       }
 #endif /* ADVCONTEXT */               
    }
+#if CONSOLE
+#if HTTP
+#  if OSX
+   if (!mode) mode = HTTP
+#else
+   if (!mode) mode = getenv("DISPLAY") ? HTTP : CONSOLE;
+#endif /* OSX */
+#else /* !HTTP */
+   mode = CONSOLE;
+#endif /* HTTP */
+#endif /* CONSOLE */
    return (new_game);
 }
 #endif /* !ADVLIB */
 /*===========================================================*/
-#ifdef ADVLIB
-#  ifdef __STDC__
-char *advturn (char *cmd)
-#  else
-char *advturn (cmd)
-char *cmd;
-#  endif
+#if ADVLIB
+   char *advturn (char *cmd)
 #else
-#  ifdef __STDC__
-int main (int argc, char **argv)
-#  else
-int main (argc, argv)
-int argc;
-char **argv;
-#  endif
-#endif /* ADVLIB */
+#  if OSX
+      extern void shutterm(int);
+#  endif /* OSX */
+   int main (int argc, char **argv)
+#endif /* ADVLIB  */
 {
    int new_game = 0;
-   
+#if ADVLIB
+   char *cptr;
+#endif
+
    if (!text_buf)
    {
       text_buf = advalloc (text_buf_len);
       lptr = text_buf;
    }
    *text_buf = '\0';
+   loop = 0;
    
 /* NB: CGINAME has '.' or '_' prefix, but it might be wrong. */
 
@@ -5922,14 +5679,16 @@ char **argv;
 #  else
    *truname = '.';
 #  endif /* MSDOS || WINDOWS */
-   cgi_name = truname;
+   autoname = truname;
 
-#ifdef ADVLIB
-   cgi = 'y';
-   strncpy (cgicom, cmd, sizeof (cgicom));
+#if ADVLIB
+   prog = ".";
+   mode = HAVECMD;
+   strncpy (extcom, cmd, sizeof (extcom));
+   cptr = strchr (cmd + 1, '_');
+   if (cptr && *(cptr + 1) == 'T') html_ok = 0;
    if (strncmp (cmd, "_INFO_", 6) == 0)
    {
-      if (*(cmd + 6) && *(cmd + 6) != 'H') html_ok = 0;
       PRINTF (GAME_NAME);
       outchar ('|');
       PRINTF (GAME_ID);
@@ -5944,32 +5703,37 @@ char **argv;
    }
    else if (strncmp (cmd, "_RESUME_", 6) == 0)
    {
-      new_game = -1;
-      *cgicom = '\0';
+      mode = RESUMEGAME;
+      *extcom = '\0';
    }
    else if (strncmp (cmd, "_LOAD_", 6) == 0)
    {
-      cgi = 'x';
-      strcpy (comline, cmd + 6);
-      dump_name = comline;
+      mode = LOADGAME;
+      value[STATUS] = -1;
+      strcpy (comline, "restore ");
+      cptr = cmd + 6;
+      if (!strncmp (cptr, "TEXT_", 5) || !strncmp(cptr, "_HTML_", 5))
+         cptr += 5;
+      strcat (comline, cptr);
+      dump_name = comline + 8;
    }
    else if (strncmp (cmd, "_START_", 7) == 0)
    {
-      cgi = 'x';
-      if (*(cmd + 7) && *(cmd + 7) != 'H') html_ok = 0;
+      mode = STARTGAME;
       new_game = 1;
    }
-   prog = ".";
+   else
+      goto run_it;
 #else /* !ADVLIB */
+   if (loop) 
+     goto run_it;
    prog = *argv;
    strncpy(truname + 1, strrchr(*argv, SEP) + 1, sizeof(truname) - 1);
-#ifdef BROWSER
+#if HTTP
 #  if WINDOWS
-   cgi = 'b';
-#  else /* !WINDOWS */
-   cgi = getenv("DISPLAY") ? 'b' : 0;
+   mode = HTTP;
 #  endif /* WINDOWS */
-#endif
+#endif /* HTTP */
    new_game = parse_args(argc, argv);
 #endif /* ADVLIB */
 
@@ -5983,7 +5747,7 @@ char **argv;
    *prompt_ptr = '\0';
 #endif /* NO_READLINE */
 #ifndef NO_SLOW
-   if (cgi > 0) cps = 0;   /* It's a browser display! */
+   if (mode != CONSOLE) cps = 0;
    if (cps)
 #  if WINDOWS
       cps = 1000/cps;
@@ -5991,7 +5755,7 @@ char **argv;
       cps = 1000000/cps;
 #  endif /* WINDOWS */
 #endif /* NO_SLOW */
-   if (cgi > 0) 
+   if (mode != CONSOLE) 
       Margin = 0;
    if (mainseed == 0)
       time ((time_t *) &mainseed);
@@ -6007,12 +5771,24 @@ char **argv;
       return (0);
    }
 
-   if (cgi == -1) cgi = 0;
+/*   if (!mode) mode = CONSOLE; */
    value [THERE] = value [HERE] = FLOC;
 
    value[0] = 0;
-   if (cgi < 'x' && !new_game)
+   if (mode != HAVECMD)
+#if STYLE >= 10
+      while (1)
+      {
+         loop = 0;
+         INIT_PROC ();
+         if (loop < 2) break;
+      }
+#else
+      INIT_PROC();
+#endif /* STYLE >= 10 */
+   if ((CONSOLE || mode == RESUMEGAME) && !new_game)
    {
+      if (mode == RESUMEGAME) mode = HAVECMD;
       if (! dump_name || ! *dump_name)
          special(999, &value [0]);
    }
@@ -6021,6 +5797,8 @@ char **argv;
       FILE *adl;
       char name [64];
       int c;
+      lptr = text_buf;
+      *lptr = '\0';
       PRINTF (RESTORING);
       sprintf (name, "%s.adl", truname);
       if ((adl = fopen (name, RMODE)) != NULL)
@@ -6029,32 +5807,32 @@ char **argv;
             outchar (c & 0377);
          fclose (adl);
       }
-#ifdef JS
+#if ADVLIB
       outbuf(0);
       return (obuf);
 #else
       goto run_it;
-#endif /* JS */
+#endif /* ADVLIB */
    }
 #ifdef JS
    if (new_game)
      value[STATUS] = -2;     /* Signal new game with no restore choice */
 #endif /* JS */
 #ifdef ADVCONTEXT
-   if (cgi == 'x' && dump_name && *dump_name)
+   if (mode == STARTGAME && dump_name && *dump_name)
    {
-      cgi_name = dump_name;
+      autoname = dump_name;
       special (997, &value [0]);
-      cgi_name = truname;
+      autoname = truname;
    }
-   else if (cgi == 'y')
+   else if (mode == HAVECMD)
       special (999, &value [0]);
    else
 #endif /* ADVCONTEXT */
    {
       if (dump_name && *dump_name)
       {
-         INIT_PROC ();
+/*         INIT_PROC (); */
          value [STATUS] = -1;
          value [ARG3] = -1;
          tindex = 1;
@@ -6066,67 +5844,72 @@ char **argv;
       {
          tindex = 0;
          tp [0] = NULL;
-         if (setjmp (loop_back) == 0)
-            INIT_PROC ();
+/*         if (setjmp (loop_back) == 0) */
+/*            INIT_PROC ();             */
       }
    }
 
 run_it:
-#ifdef UNDO
-   if (undo_def == -2)
-      bitmod ('s', UNDO_STAT, UNDO_NONE);
-   else if (undo_def == 1)
-      bitmod ('s', UNDO_STAT, UNDO_INFO);
-   else if (undo_def == -1)
-   {
-      bitmod ('s', UNDO_STAT, UNDO_INFO);
-      bitmod ('s', UNDO_STAT, UNDO_OFF);
-   }
-#endif /* UNDO */
-
-#ifdef ADVLIB
-   {
-      int jmptype = setjmp (loop_back);
-      if (jmptype > 1)
-        return (obuf);
-   }
-#else
-   setjmp (loop_back);
-#endif /* ADVLIB */
-
-   if (quitting) 
-   {
-      if (end_pause)
-      {
-         PRINTF ("(To exit, press ENTER)");
-         getinput (comline, 160);
-         putchar('\n');
-      }
-      else
-      {
-         if (text_len > 0)
-            outbuf (1);
-         putchar('\n');
-      }
-      close_files ();
-      zap_dump ();
-#if WINDOWS
-      chdir(odir);
-#endif /* WINDOWS */
-#ifdef ADVLIB
-      *obuf = 'f';
-      quitting = 0;
-      return (obuf);
-#else
-      free (text_buf);
-      free (obuf);
-      if (scratch)
-        free (scratch);
-      return (255);
-#endif
-   }
    while (1)
    {
+#ifdef UNDO
+      if (undo_def == -2)
+         bitmod ('s', UNDO_STAT, UNDO_NONE);
+      else if (undo_def == 1)
+         bitmod ('s', UNDO_STAT, UNDO_INFO);
+      else if (undo_def == -1)
+      {
+         bitmod ('s', UNDO_STAT, UNDO_INFO);
+         bitmod ('s', UNDO_STAT, UNDO_OFF);
+      }
+#endif /* UNDO */
+
+#if ADVLIB
+      {
+         if (mode == LOADGAME) mode = STARTGAME;
+         if (loop > 1)
+           return (obuf);
+      }
+#endif /* ADVLIB */
+#if CGI
+      if (loop > 1)
+        exit (value [ADVCONTEXT]);
+#endif /* CGI */
+      loop = 0;
+      if (quitting) 
+      {
+         if (end_pause)
+         {
+            PRINTF ("(To exit, press ENTER)");
+            getinput (comline, 160);
+            putchar('\n');
+         }
+         else
+         {
+            if (text_len > 0)
+               outbuf (1);
+            putchar('\n');
+         }
+         close_files ();
+         zap_dump ();
+#if WINDOWS
+         chdir(odir);
+#endif /* WINDOWS */
+#if ADVLIB || CGI
+         *obuf = 'f';
+         quitting = 0;
+         return (obuf);
+#else /* !ADVLIB && !CGI */
+         free (text_buf);
+         free (obuf);
+         if (scratch)
+           free (scratch);
+#if OSX
+           shutterm(2); /* Console or browser: shut the terminal window */
+#endif /* OSX */
+         return (255);
+#endif /* ADVLIB || CGI */
+      }
       rseed = mainseed;
       irand (1);
       mainseed = rseed;
@@ -6135,14 +5918,7 @@ run_it:
    }
 }
 /*===========================================================*/
-#ifdef __STDC__
 int have (int l1,int l2,int l3)
-#else
-int have (l1,l2,l3)
-int l1;
-int l2;
-int l3;
-#endif
 {
    if (l1 > LOBJ) return (0);
    if (location [l1] != INHAND) return (0);
@@ -6156,15 +5932,7 @@ int l3;
    return (0);
 }
 /*===========================================================*/
-#ifdef __STDC__
 int isat (int l1,int l2,int l3, int l4)
-#else
-int isat (l1,l2,l3,l4)
-int l1;
-int l2;
-int l3;
-int l4;
-#endif
 {
    if (l1 > LOBJ) return (0);
    if (l2 != -1)
@@ -6184,33 +5952,18 @@ int l4;
    return (0);
 }
 /*===========================================================*/
-#ifdef __STDC__
 int ishere (int l1,int l2,int l3)
-#else
-int ishere (l1,l2,l3)
-int l1;
-int l2;
-int l3;
-#endif
 {
    return (isat (l1, l2, l3, value [HERE]));
 }
 /*===========================================================*/
-#ifdef __STDC__
 int isnear (int l1,int l2,int l3)
-#else
-int isnear (l1,l2,l3)
-int l1;
-int l2;
-int l3;
-#endif
 {
    if (have (l1,l2,l3)) return (1);
    if (ishere (l1,l2,l3)) return (1);
    return (0);
 }
 /*===========================================================*/
-#if !defined(NOVARARGS) && defined(__STDC__)
 void move (int a1, int a2, ...)
 {
    va_list ap;
@@ -6234,49 +5987,6 @@ void move (int a1, int a2, ...)
    return;
 gothere:
    va_end (ap);
-#else /* not (NOVARARGS && __STDC__)*/
-/*===========================================================*/
-#ifdef __STDC__
-void move (int a1,int a2,int a3,int a4,int a5,int a6,int a7,int a8,
-           int a9,int a10,int a11,int a12,int a13,int a14,int a15,int a16)
-#else
-void move (a1,a2,a3,a4,a5,a6,a7,a8,a9,a10,a11,a12,a13,a14,a15,a16)
-int a1,a2,a3,a4,a5,a6,a7,a8,a9,a10,a11,a12,a13,a14,a15,a16;
-#endif
-{
-   int kwrd;
-
-   if (a2 < 0) goto gothere;
-   if ((kwrd = a3) < 0) kwrd = -kwrd;
-   if (KEY (kwrd)) goto gothere; else if (a3 < 0) return;
-   if ((kwrd = a4) < 0) kwrd = -kwrd;
-   if (KEY (kwrd)) goto gothere; else if (a4 < 0) return;
-   if ((kwrd = a5) < 0) kwrd = -kwrd;
-   if (KEY (kwrd)) goto gothere; else if (a5 < 0) return;
-   if ((kwrd = a6) < 0) kwrd = -kwrd;
-   if (KEY (kwrd)) goto gothere; else if (a6 < 0) return;
-   if ((kwrd = a7) < 0) kwrd = -kwrd;
-   if (KEY (kwrd)) goto gothere; else if (a7 < 0) return;
-   if ((kwrd = a8) < 0) kwrd = -kwrd;
-   if (KEY (kwrd)) goto gothere; else if (a8 < 0) return;
-   if ((kwrd = a9) < 0) kwrd = -kwrd;
-   if (KEY (kwrd)) goto gothere; else if (a9 < 0) return;
-   if ((kwrd = a10) < 0) kwrd = -kwrd;
-   if (KEY (kwrd)) goto gothere; else if (a10 < 0) return;
-   if ((kwrd = a11) < 0) kwrd = -kwrd;
-   if (KEY (kwrd)) goto gothere; else if (a11 < 0) return;
-   if ((kwrd = a12) < 0) kwrd = -kwrd;
-   if (KEY (kwrd)) goto gothere; else if (a12 < 0) return;
-   if ((kwrd = a13) < 0) kwrd = -kwrd;
-   if (KEY (kwrd)) goto gothere; else if (a13 < 0) return;
-   if ((kwrd = a14) < 0) kwrd = -kwrd;
-   if (KEY (kwrd)) goto gothere; else if (a14 < 0) return;
-   if ((kwrd = a15) < 0) kwrd = -kwrd;
-   if (KEY (kwrd)) goto gothere; else if (a15 < 0) return;
-   if ((kwrd = a16) < 0) kwrd = -kwrd;
-   if (KEY (kwrd)) goto gothere; return;
-gothere:
-#endif /* NOVARARGS && __STDC__ */
 
 #if STYLE >= 11
    if (value [THERE] != value [HERE])
@@ -6296,16 +6006,12 @@ gothere:
       a2 = -a2;
    if (a2 > 0)
       say (0, a2, 0);
-   if (a2 != -1) longjmp (loop_back, 1);
+   if (a2 != -1)
+      loop = 1;
    return;
 }
 /*===========================================================*/
-#ifdef __STDC__
 void apport (int l1,int l2)
-#else
-void apport (l1,l2)
-int l1,l2;
-#endif
 {
 #if defined (JUGGLED) && defined (STATUS)
    if (location [l1] == INHAND || l2 == INHAND)
@@ -6315,14 +6021,7 @@ int l1,l2;
    return;
 }
 /*===========================================================*/
-#ifdef __STDC__
 void set (char t1, int v1, char t2, int v2, int *lv, short *lb)
-#else
-void set (t1, v1, t2, v2, lv, lb)
-int t1, v1, t2, v2;
-int *lv;
-short *lb;
-#endif
 {
    int val, bts, cur = 0;
   
@@ -6352,12 +6051,7 @@ short *lb;
    }
 }
 /*===========================================================*/
-#ifdef __STDC__
 void lda (int l1, int l2)
-#else
-void lda (l1, l2)
-int l1,l2;
-#endif
 {
    value [l1] = l2;
    *bitword (l1) = -1;
@@ -6365,35 +6059,20 @@ int l1,l2;
    return;
 }
 /*===========================================================*/
-#ifdef __STDC__
 void eval (int l1, int l2)
-#else
-void eval (l1, l2)
-int l1,l2;
-#endif
 {
    value [l1] = value [value [l2]];
    return;
 }
 /*===========================================================*/
-#ifdef __STDC__
 void deposit (int l1, int l2)
-#else
-void deposit (l1, l2)
-int l1,l2;
-#endif
 {
     value [value [l1]] = (l2 > LVAR || l2 < FVAR) ? l2 :
        value [l2];
     return;
 }
 /*===========================================================*/
-#ifdef __STDC__
 void locate (int l1, int l2)
-#else
-void locate (l1, l2)
-int l1,l2;
-#endif
 {
    value [l1] = location [(l2 < FVAR || l2 > LVAR) ? l2 :
       value [l2]];
@@ -6401,12 +6080,7 @@ int l1,l2;
    return;
 }
 /*===========================================================*/
-#ifdef __STDC__
 int evar (int l1)
-#else
-int evar (l1)
-int l1;
-#endif
 {
    if (*bitword (l1) == -1)
       return value [l1];
@@ -6414,14 +6088,7 @@ int l1;
       return l1;
 }
 /*===========================================================*/
-#ifdef __STDC__
 int levar (int l1, int *l2, short *l3)
-#else
-int levar (l1, l2, l3)
-int l1;
-int *l2;
-short *l3;
-#endif
 {
    if (*(l3 + VARSIZE * l1) == -1)
       return (*(l2 + l1));
@@ -6429,11 +6096,7 @@ short *l3;
       return l1;
 }
 /*===========================================================*/
-#ifdef __STDC__
 void finita (void)
-#else
-void finita ()
-#endif
 {
 #if !defined(MEMORY) && !defined(PRELOADED)
    fclose (text_file);
@@ -6446,15 +6109,10 @@ void finita ()
       (((1000 * locate_faults) / locate_demands) + 5) / 10);
 #endif /* LOC_STATS */
    quitting = 1;
-   longjmp (loop_back, 1);
+   loop = 1;
 }
 /*===========================================================*/
-#ifdef __STDC__
 short *bitword (int a1)
-#else
-short *bitword (a1)
-int a1;
-#endif
 {
    short *adr;
    
@@ -6468,14 +6126,7 @@ int a1;
    return (adr);
 }
 /*===========================================================*/
-#ifdef __STDC__
 void bitmod (char a1, int a2, int a3)
-#else
-void bitmod (a1, a2, a3)
-char a1;
-int a2;
-int a3;
-#endif
 {
    short *bitadr;
    
@@ -6509,18 +6160,8 @@ int a3;
       *bitadr &= ~(1 << a3);
    return;
 }
-      /*===========================================================*/
-#ifdef __STDC__
+/*===========================================================*/
 void lbitmod (int a0, char a1, int a2, int a3, int *a4, short *a5)
-#else
-void lbitmod (a0, a1, a2, a3, a4, a5)
-int a0;
-char a1;
-int a2;
-int a3;
-int *a4;
-short *a5;
-#endif
 {
 /* a0 locals
  * a1 type ('c', 's')
@@ -6568,14 +6209,8 @@ short *a5;
       *bitadr &= ~(1 << a3);
    return;
 }
-      /*===========================================================*/
-#ifdef __STDC__
+/*===========================================================*/
 int bitest (int a1, int a2)
-#else
-int bitest (a1, a2)
-int a1;
-int a2;
-#endif
 {
    short *bitadr;
    
@@ -6606,15 +6241,7 @@ int a2;
    return (*bitadr & 1 << a2);
 }
 /*===========================================================*/
-#ifdef __STDC__
 int lbitest (int a1, int a2, int *a3, short *a4)
-#else
-int lbitest (a1, a2, a3, a4)
-int a1;
-int a2;
-int *a3;
-short *a4;
-#endif
 {
    short *bitadr;
    if (*(a4 + VARSIZE * a1) == -1)
@@ -6646,23 +6273,14 @@ short *a4;
    return (*bitadr & 1 << a2);
 }
 /*===========================================================*/
-#ifdef __STDC__
 void flush_command (void)
-#else
-void flush_command ()
-#endif
 {
    value_all = 0;
    tp [tindex] = NULL;
    return;
 }
 /*===========================================================*/
-#ifdef __STDC__
 void shift_up (char *aptr)
-#else
-void shift_up (aptr)
-char *aptr;
-#endif
 {
    if ((*aptr >= 'a' && *aptr < 'z') || (*aptr >= 'A' && *aptr < 'Z'))
       (*aptr)++;
@@ -6670,13 +6288,7 @@ char *aptr;
       *aptr -= 25;
 }
 /*===========================================================*/
-#ifdef __STDC__
 void shift_down (char *aptr, int maxlen)
-#else
-void shift_down (aptr, maxlen)
-char *aptr;
-int maxlen;
-#endif
 {
    char *sptr = aptr;
    while (maxlen-- && *aptr)
@@ -6690,25 +6302,13 @@ int maxlen;
    if (log_file) fprintf (log_file, "TRANSLATION: %s\n", sptr);
 }
 /*===========================================================*/
-#ifdef __STDC__
 void tie (int text, int holder)
-#else
-void tie (text, holder)
-int text;
-int holder;
-#endif
 {
    text_info [2 * (text - FTEXT)] = TIED_TEXT;
    value [text] = holder;
 }
 /*===========================================================*/
-#ifdef __STDC__
 void svar (int type, int *var)
-#else
-void svar (type, var)
-int type;
-int *var;
-#endif
 {
    time_t now;
    struct tm *tp;
@@ -6727,21 +6327,31 @@ int *var;
    return;
 }
 /*===========================================================*/
-#ifdef __STDC__
+int getloc(int refno)
+{
+  return (refno <= LOBJ ? location [refno] : 0);
+}
+/*===========================================================*/
+int randsel(int cnt, ...)
+{
+  va_list ap;
+  int choice;
+  
+  cnt = irand(cnt) + 1;
+  va_start (ap, cnt);
+  while (cnt--)
+    choice = va_arg(ap, int);  
+  va_end (ap);
+  return (choice);
+}
+/*===========================================================*/
 void glue_text (void)
-#else
-void glue_text();
-#endif
 {
 /* Convert last message output into a fragment */
    while (*(lptr - 1) == '\n') lptr--;
 }
 /*===========================================================*/
-#ifdef __STDC__
 void zap_text (void)
-#else
-void zap_text();
-#endif
 {
 /* Zap all of the accumulated text */
    lptr = text_buf;
@@ -6749,12 +6359,7 @@ void zap_text();
    text_len = 0;
 }
 /*===========================================================*/
-#ifdef __STDC__
 void verbatim (int arg)
-#else
-void verbatim(arg);
-int arg;
-#endif
 {
    if (arg == ARG1)
       strncpy (arg1_word, tp [tindex - 1], WORDSIZE);
@@ -6766,39 +6371,19 @@ int arg;
    }
 }
 /*===========================================================*/
-#ifdef __STDC__
 int test (char *type)
-#else
-int test (type);
-char *type;
-#endif
 {
    if (strcmp(type, "cgi") == 0)
- #ifdef ADVLIB
-      return (0);
-#else
-      return (cgi && cgi != 'b');
-#endif /* ADVLIB */
+      return (CGI);
    if (strcmp(type, "doall") == 0)
       return (value_all);
    if (strcmp(type, "html") == 0)
-#ifdef BROWSER
-      return (cgi == 'b');
-#else
-      return (cgi);
-#endif /* BROWSER */
-      
+      return (html_ok);
    PRINTF2 ("GLITCH! Bad test type: %s\n", type);
    return (0);
 }
 /*===========================================================*/
-#ifdef __STDC__
 void show_bits (int refno, int size)
-#else
-void show_bits (refno, size)
-int refno;
-int size;
-#endif
 {
    int i;
    fprintf (stderr, " - ");
@@ -6806,11 +6391,7 @@ int size;
       fprintf (stderr, "%c", bitest (refno, i) ? '1' : '0');
 }
 /*===========================================================*/
-#ifdef __STDC__
 void show_data (void)
-#else
-void show_data ()
-#endif
 {
    int i;
    FILE *rrefs;
@@ -6850,12 +6431,7 @@ void show_data ()
 /*===========================================================*/
 #ifdef UNDO
 
-#ifdef __STDC__
 int inv_check (int mode)
-#else
-int inv_check (mode)
-int mode;
-#endif
 {
    int i;
    if (mode == 0)
@@ -6872,11 +6448,7 @@ int mode;
    return (0);
 }
 /*===========================================================*/
-#ifdef __STDC__
 int checkdo (void)
-#else
-int checkdo ()
-#endif
 {
    char *a;
    int val = 0;
@@ -6908,11 +6480,7 @@ int checkdo ()
    return (val);
 }
 /*===========================================================*/
-#ifdef __STDC__
 void  undo (void)
-#else
-void undo ()
-#endif
 {
    int cnt;
    int acnt;
@@ -6955,11 +6523,7 @@ void undo ()
    return;
 }
 /*===========================================================*/
-#ifdef __STDC__
 void redo (void)
-#else
-void redo ()
-#endif
 {
    int acnt;
    int cnt;
@@ -7003,12 +6567,7 @@ void redo ()
 }
 #endif /* UNDO */
 /*===========================================================*/
-#ifdef __STDC__
 void pcall (int procno)
-#else
-void pcall (procno)
-int procno;
-#endif
 {
    fprintf (stderr, 
       "\n*GLITCH* Called proc offest %d, but game's offset range is 0 to %d!\n",
@@ -7041,12 +6600,7 @@ int procno;
 /*===========================================================*/
 #if STYLE >= 11
 
-#ifdef __STDC__
 int typed (char *string)
-#else
-int typed (string)
-char *string;
-#endif
 {
    return (strcmp(orig1, string) == 0 || strcmp(orig2, string) == 0);
 }
@@ -7056,7 +6610,7 @@ char *string;
 /* All the remaining code is strictly for direct browser display,
  * i.e. not even for remote cgi-bin operation.
  */
-#ifdef BROWSER
+#if HTTP
 
 /*====================================================================*/
 /* This is the initial page to send to the browser, including all
@@ -7487,4 +7041,4 @@ void send_null()
    browser_write (kbuf);
 }
 /*====================================================================*/
-#endif
+#endif /* HTTP */

@@ -1,6 +1,9 @@
-/* adv0.h: A-code kernel - copyleft Mike Arnautov 1990-2014.
+/* adv0.h: A-code kernel - copyleft Mike Arnautov 1990-2016.
  * Licensed under the Modified BSD Licence (see the supplied LICENCE file). 
  *
+ * 04 Apr 16   MLA             Added loop, to replace setjmp/longjmp.
+ * 03 Mar 16   MLA             Removed non-ANSI C support.
+ * 24 Feb 16   MLA             Moved more stuff in from adv00.c.
  * 05 Jan 15   MLA             Moved special char definitions from adv00.c.
  *                             Added html_ok as extern for use in adv01.c.
  * 22 Dec 14   BTB             Added IOS.
@@ -9,12 +12,130 @@
  * 01 May 07   Stuart Munro    Bug: Added STDC definition of procs[]().
  */
 
-#if (defined(__cplusplus) || defined(_MSC_EXTENSIONS)) && !defined(__STDC__)
-#  define __STDC__ 1
+#if defined(MSDOS)||defined(WIN32)||defined(_WIN32)||defined(__WIN32)||defined (_WIN32_)||defined(__WIN32__)
+#  define WINDOWS 1
+#  define UNIX 0
+#  define OSX 0
+#else
+#  if defined(__MACH__) || defined(XCODE) || defined(IOS)
+#     define WINDOWS 0
+#     define UNIX 1
+#     define OSX 1
+#  else
+#     if defined(__unix__) || defined(__linux__)
+#        define WINDOWS 0
+#        define UNIX 1
+#        define OSX 0
+#     endif
+#  endif
 #endif
 
+/* HTTP can only be defined internally! */
+
+#ifdef HTTP
+#  undef HTTP
+#endif
+
+/* Javascript requires ADVLIB */
+
+#ifdef JS
+#  ifndef ADVLIB
+#    define ADVLIB
+#  endif
+#endif
+
+/* IOS needs ADVLIB and its own header file */
+
 #ifdef IOS
-#  define move adv_move
+#  include "ios.h"
+#  ifndef ADVLIB
+#    define ADVLIB
+#  endif
+#endif
+
+/* CGI can be a compilation symbol. It is one of the four key symbols 
+ * to be always defined as 0 or 1.  It is kind of "external" ADVLIB.
+ */
+#ifdef CGI
+#  undef CGI
+#  define CGI 3
+#  ifndef ADVLIB
+#    define ADVLIB
+#  endif
+#else
+#  define CGI 0
+#endif /* CGI */
+
+/* Now make sure that the other three key symbols (ADVLIB, CONSOLE and HTTP)
+ * are defined as 0 or not 0 as appropriate. Also deal with sub-type symbols.
+ * ADVLIB and CONSOLE can be a compilation symbols. HTTP cannot be. Actual
+ * values must be unique and are assigned as follows:
+ *   
+ * HTTP       1
+ * CONSOLE    2
+ * CGI        3
+ * ADVLIB     4
+ */
+#ifdef ADVLIB
+#  undef ADVLIB
+#  if CGI               /* Careful! CGI may already be defined a 0 */
+#    define ADVLIB 0
+#else
+#    define ADVLIB 4
+#  endif /* CGI */
+#  ifndef NO_READLINE
+#    define NO_READLINE
+#  endif
+#  ifdef CONSOLE
+#    undef CONSOLE
+#  endif
+#  define CONSOLE   0
+#  define HTTP      0
+#else
+#  define ADVLIB 0
+#  define CGI    0
+#  ifdef CONSOLE
+#    undef CONSOLE
+#    define CONSOLE 2
+#    define HTTP    0
+#  else /* !CONSOLE */
+#    define CONSOLE 2
+#    define HTTP    1
+#    include <fcntl.h>
+#    define HTTP_HEADER \
+   "HTTP/1.0 200 OK\n" \
+   "Host: localhost\n" \
+   "Server: A-code/1.1\n" \
+   "Cache-Control: no-store\n" \
+   "Content-Type: text/html\n" \
+   "Content-Length: "
+#  endif /* CONSOLE */
+#endif /* ADVLIB */
+
+/* The mode variable may have the value of the current mode (1 to 4), or
+ * (for CGI and ADVLIB) one of the following:
+ */
+#  define STARTGAME   5
+#  define HAVECMD     6
+#  define NEEDCMD     7
+#  define LOADGAME    8
+#  define RESUMEGAME  9
+#  define LISTSAVES  10
+#  define GAMEINFO   11
+
+#include <stdio.h>
+#include <string.h>
+#include <stdlib.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#ifdef NO_UNISTD
+#   if WINDOWS && !defined(MSDOS)
+#      define unlink _unlink
+#   else /* !WINDOWS */
+       int unlink(char *);
+#   endif /* WINDOWS */
+#else
+#  include <unistd.h>
 #endif
 
 #define SW_START     '\377'
@@ -41,9 +162,7 @@
 #ifdef FILE
 #  undef FILE
 #endif
-#include <stdio.h>
-#include <setjmp.h>
-#ifdef __STDC__
+
 extern void say (int key, int what, int qualifier);
 extern int query (int textref);
 extern void cgiquery (int textref, int qid);
@@ -84,6 +203,7 @@ extern void move (int a1, int a2, ...);
 extern void tie (int text, int holder);
 extern int jrand (int limit);
 extern void glue_text (void);
+extern int randsel (int, ...);
 extern void verbatim (int);
 extern int memstore (int);
 extern int test (char *);
@@ -97,6 +217,7 @@ extern int (*procs[])(void);
 extern void pcall (int);
 extern int typed (char *);
 extern void svar (int, int *);
+extern int getloc (int);
 extern void browser_write (char *);
 extern int browser_read (char *, int);
 extern void invoke_browser (char *, int);
@@ -106,63 +227,7 @@ extern void send_page (void);
 #ifdef __WIN32
 extern void my_usleep (int);
 #endif /* __WIN32 */
-#else /* ! __STDC__ */
-extern void say ();
-extern int query ();
-extern void cgiquery ();
-extern int special ();
-extern int ishere ();
-extern int isat ();
-extern int isnear ();
-extern void apport ();
-extern void set ();
-extern void lda ();
-extern void eval ();
-extern void deposit ();
-extern void locate ();
-extern int evar ();
-extern short *bitword ();
-extern void bitmod ();
-extern int bitest ();
-extern void outchar ();
-extern char *outline ();
-extern void finita ();
-extern int irand ();
-extern int have ();
-extern void flush_command ();
-extern void input ();
-extern void default_to ();
-extern void voc ();
-extern int anyof ();
-extern int keyword ();
-extern void move ();
-extern void tie ();
-extern int jrand ();
-extern void glue_text ();
-extern void verbatim ();
-extern int memstore ();
-extern int test();
-extern void undo();
-extern void redo();
-extern void show_data();
-extern int http_in ();
-extern int http_out ();
-extern void http_init ();
-extern int (*procs[]) ();
-extern void pcall ();
-extern int typed ();
-extern void svar ();
-extern void browser_write ();
-extern int browser_read ();
-extern void invoke_browser ();
-extern char *make_header ();
-extern void send_null ();
-extern void send_page ();
-#ifdef __WIN32
-extern void my_usleep ();
-#endif /* __WIN32 */
-#endif /* __STDC__ */
-extern jmp_buf loop_back;
+
 extern int *value;
 extern int *location;
 extern short *objbits;
@@ -175,4 +240,4 @@ extern short *varbits;
 extern int value_all;
 #endif /* ALL */
 extern int html_ok;
-
+extern int loop;
