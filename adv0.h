@@ -227,6 +227,9 @@ extern void send_page (void);
 #ifdef __WIN32
 extern void my_usleep (int);
 #endif /* __WIN32 */
+#ifdef OSX
+extern void shutterm (int);
+#endif /* OSX */
 
 extern int *value;
 extern int *location;
@@ -241,3 +244,7 @@ extern int value_all;
 #endif /* ALL */
 extern int html_ok;
 extern int loop;
+#if ADVLIB
+extern int rep;
+extern int nrep;
+#endif /* ADVLIB */

@@ -1,8 +1,16 @@
 /* adv00.c: A-code kernel - copyright Mike Arnautov 1990-2016.
  * Licensed under the Modified BSD Licence (see the supplied LICENCE file). 
  */
-#define KERNEL_VERSION "12.70, 10 Apr 2016"
+#define KERNEL_VERSION "12.72, 08 Nov 2016"
 /*
+ * 08 Nov 16   MLA        BUG: Don't save undo changes in CGI unless HAVECMD!
+ * 26 Aug 16   MLA        Bug: Don't skip saveing changes in the CGI mode!
+ * 23 Aug 16   MLA        Bug: Forced correct memory alignement in JS mode.
+ *                        Improved ADVLIB mode handling via rep and nrep.
+ * 20 Aug 16   MLA        Bug: Don't insert "? " prompt in the ADVLIB mode!
+ * 01 Aug 16   MLA        BUG: Eliminate noise words in parse() not in input()!
+ * 30 Jul 16   MLA        Honour replacement text in vocab initialisation.
+ * 23 Apr 16   MLA        Bug: Make sure test() and have() return 0 or 1!
  * 09 Apr 16   MLA        Replaced cgi with mode plus compilation symbols.
  *                        Offloaded build mode evaluation to adv0.h
  * 04 Apr 16   MLA        Replaced setjmp/jongjmp with the loop mechanism.
@@ -553,6 +561,12 @@ char *dump_name = NULL;
 void outbuf (int);
 int value_all;
 int loop = 0;
+
+#if ADVLIB
+int rep = 0;
+int nrep = 0;
+#endif /* ADVLIB */
+
 #ifdef USEDB
    char *dbs_dir = NULL;
 #endif /* USEDB */
@@ -568,16 +582,19 @@ char virgin;
 #define VARBIT_SIZE (VARSIZE * (LVAR - FVERB + 1) * sizeof (short))
 #define VRBBIT_SIZE (VARSIZE * (LVERB - FVERB + 1) * sizeof (short))
 #define IMAGE_SIZE (OFFSET_VARBIT + VARBIT_SIZE)
-char IMAGE [IMAGE_SIZE];
-int *value = (int *)IMAGE;
-int *location = (int *)(IMAGE + OFFSET_LOCS);
-short *objbits = (short *)(IMAGE + OFFSET_OBJBIT);
-short *placebits = (short *)(IMAGE + OFFSET_LOCBIT);
-short *varbits = (short *)(IMAGE + OFFSET_VARBIT);
+#define IMSZ (1 + IMAGE_SIZE / sizeof (int))
+int intIM [IMSZ];
+unsigned char *IMAGE = (unsigned char *)intIM;
+int *value = intIM;
+int *location = (int *)((unsigned char *)intIM + OFFSET_LOCS);
+short *objbits = (short *)((unsigned char *)intIM + OFFSET_OBJBIT);
+short *placebits = (short *)((unsigned char *)intIM + OFFSET_LOCBIT);
+short *varbits = (short *)((unsigned char *)intIM + OFFSET_VARBIT);
 int *objlocs = NULL;
 #ifdef UNDO
-   char image [sizeof (IMAGE)];
-   int inhand [LOCS_SIZE];
+   int intim [IMSZ];
+   unsigned char *image = (unsigned char *)intim;
+   int *inhand = (int *)((unsigned char *)intim + OFFSET_LOCS);
    unsigned char *diffs = NULL;
    unsigned char *dptr = NULL;
    unsigned char *edptr;
@@ -729,7 +746,14 @@ char *lp;
 
 #define PRINTF(X)    { char *ptr = X; while (*ptr) outchar(*ptr++); }
 #define PRINTF1(X)   fputs(X, stdout); if (log_file) fputs(X,log_file);
-#define PRINTF2(X,Y) printf(X,Y); if (log_file) fprintf(log_file,X,Y);
+#define PRINTF2(X,A) { char tmp[160]; char *ptr = tmp; \
+                     sprintf(tmp,X,A); \
+                     while (*ptr) outchar(*ptr++); \
+                     if (log_file) fprintf(log_file,X,A); }
+#define PRINTF5(X,A,B,C,D) { char tmp[160]; char *ptr = tmp; \
+                     sprintf(tmp,X,A,B,C,D); \
+                     while (*ptr) outchar(*ptr++); \
+                     if (log_file) fprintf(log_file,X,A,B,C,D); }
 #define LOGERROR(X)  if (log_file) fprintf(log_file,"ERROR: %d",X)
 #define CHKSUM(X,Y)  for (cptr=(char *)X,cnt=1; \
                      (unsigned int)cnt<=(unsigned int)Y;cnt++,cptr++) \
@@ -1158,33 +1182,36 @@ void file_oops (void)
 /*===========================================================*/
 void voc (int word, int what, int test, int vtext)
 {
-   int index;
    int tc;
    static int vc = 0;
    
    if (word == 0)
-   {
       vc = 0;
-      return;
+   else
+   {
+      if (what == 0)
+         what = word;
+      if (test >0 && bitest (what, test) == 0)
+         return;
+      if (vc++ > 0)
+      {
+         outchar (',');
+         outchar (' ');
+      }      
    }
-   if (what == 0)
-      what = word;
-   if (test >0 && bitest (what, test) == 0)
-      return;
-   if (vc++ > 0)
+   if (vtext) 
+      say (0, vtext, 0);
+   else if (word)
    {
-      outchar (',');
-      outchar (' ');
-   }      
-   index = (vtext == 0) ? word : vtext;
-   ta = textadr [index];
-   tc = get_char (ta);
-   if (tc == '!')
-      tc = get_char (++ta);
-   while (tc != '\0')
-   {
-      outchar (tc);
-      tc = get_char (++ta);
+      ta = textadr [word];
+      tc = get_char (ta);
+      if (tc == '!')
+         tc = get_char (++ta);
+      while (tc != '\0')
+      {
+         outchar (tc);
+         tc = get_char (++ta);
+      }
    }
 }
 /*===========================================================*/
@@ -2263,14 +2290,17 @@ void outchar (char text_char)
 /*===========================================================*/
 void save_changes (void)
 {
-   char *iptr;
-   char *optr;
+   unsigned char *iptr;
+   unsigned char *optr;
    unsigned int cnt;
    int some = 0;
 
    if (value [ARG1] <= BADWORD || value [ARG2] <= BADWORD ||
 #ifdef ADVCONTEXT
-       value [ADVCONTEXT] > 1 ||  mode == HAVECMD ||
+       value [ADVCONTEXT] > 1 ||  
+#if !CGI
+       mode == HAVECMD ||
+#endif
 #endif
        value [ARG1] == UNDO || value [ARG1] == REDO)
           return;
@@ -2292,10 +2322,10 @@ void save_changes (void)
    }
    else
    {
-      for (cnt = 0, optr = image, iptr = IMAGE; cnt < sizeof (IMAGE); 
+      for (cnt = 0, optr = image, iptr = IMAGE; cnt < IMAGE_SIZE; 
          cnt++, optr++, iptr++)
       {
-         if (*optr != *iptr && 
+         if (*optr != *iptr &&
           ! ((cnt >= ARG1*sizeof(int) && cnt < (ARG1 + 1)*sizeof(int)) ||
              (cnt >= ARG2*sizeof(int) && cnt < (ARG2 + 1)*sizeof(int)) ||
              (cnt >= STATUS*sizeof(int) && cnt < (STATUS + 1)*sizeof(int))))
@@ -2311,13 +2341,16 @@ void save_changes (void)
                diffsz += 8192;
                dptr = diffs + doffset;
             }
+#ifdef LEGACY
             if (cnt || CONSOLE)       /* ? Why CONSOLE ? (MLA) */
+#endif
+            if (cnt)
             {
                *dptr++ = cnt / 256;
                *dptr++ = cnt % 256;
                *dptr++ = *optr;
                *dptr++ = *iptr;
-               some = 1;
+               some++;
             }
          }
       }
@@ -2328,7 +2361,7 @@ void save_changes (void)
          edptr = dptr;
       }
    }
-   memcpy (image, IMAGE, sizeof (IMAGE));
+   memcpy (image, IMAGE, IMAGE_SIZE);
 }
 #endif /* UNDO */
 /*===========================================================*/
@@ -2390,10 +2423,10 @@ void getinput (char *inbuf, int insize)
          fclose (adl);
       }
    }
-#ifdef NO_READLINE
+#if defined(NO_READLINE) && !ADVLIB
    if (!*text_buf && !quitting)
       PRINTF (compress ? "? " : "\n? ");
-#endif /* NO_READLINE */
+#endif /* NO_READLINE && ! ADVLIB */
    if (mode != HTTP && mode != HAVECMD && *text_buf)
    {
       outbuf (0);
@@ -2406,23 +2439,31 @@ void getinput (char *inbuf, int insize)
 #endif /* STYLE >= 11 */
    *inbuf = '\0';
 
-#ifdef ADVCONTEXT
-#  ifdef PROMPTED
+#ifdef PROMPTED
    bitmod ('s', ADVCONTEXT, PROMPTED);
-#  endif
-   if (mode == STARTGAME || mode == NEEDCMD || mode == CGI)
+#endif
+   if (mode == STARTGAME || mode == NEEDCMD)
    {
-      special (998, &value [0]);
+      if (!query_flag)
+        special (998, &value [0]);
 #if ADVLIB || CGI
-      loop = 2; return;
+      if (loop) loop++;
+      else loop = 2;
+#if ADVLIB
+      nrep = rep;
+#endif /* ADVLIB */
+      return;
 #else
 #if STYLE >= 11
       if (word_buf) free (word_buf);
       word_buf = NULL;
 #endif /* STYLE >= 11 */
-      exit (value [ADVCONTEXT]);
-#endif /* ADVLIB */
+      exit (0);
+#endif /* ADVLIB  || CGI */
    }
+#if ADVLIB
+   nrep = 0;
+#endif /* ADVLIB */
    if (mode == HAVECMD)
    {
       strncpy (inbuf, extcom, insize - 1);
@@ -2431,7 +2472,7 @@ void getinput (char *inbuf, int insize)
          fprintf (log_file,"\nREPLY: %s\n", inbuf);
       return;
    }
-#endif
+#
    query_flag = 0;
    if (com_file)
    {
@@ -3127,6 +3168,7 @@ void parse (void)
             cptr++;
       separator [tindex + 1] = *cptr;
       *cptr++ = '\0';
+
 /* Convert ANDs into comma separators *unless* approximate matching is
  * suppressed, in which case we just discard the AND -- the latter
  * is an Adv770 specific fudge to allow a sensible response to
@@ -3137,7 +3179,21 @@ void parse (void)
       else if (strcmp (tp [tindex], THEN) == 0)
          separator [tindex] = ';';
       else
-         tindex++;
+      {
+/* 
+ * Ignore the noise words. This used to be done in input(), hence
+ * the repeated calls to find_word. Unfortunately, the logic of
+ * object iteration got wobbly as the result and this is the simplest
+ * cure.  I really ought to rewrite all the command parsing stuff. :-(
+ */
+         int type, refno, tadr;
+#if STYLE >= 11
+         find_word (&type, &refno, &tadr, 1, 0);
+#else
+         find_word (&type, &refno, &tadr, 1);
+#endif /* STYLE */
+         if (type != NOISE) tindex++;
+      }
    }
    tp [tindex] = NULL;
    separator [tindex] = '\n';
@@ -3179,7 +3235,7 @@ void input (int textref)
       except_count = 0;
 #endif
    *orig = '\0';
-#endif
+#endif /* STYLE */
    *bitword (ARG1) = -1;        /* Just in case! */
    *bitword (ARG2) = -1; 
 
@@ -3293,14 +3349,8 @@ get_arg1:
    strncpy (orig1, tp [tindex], WORDSIZE - 1);
 #else
    find_word (&type, &refno, &tadr, separator [tindex] == ',' ? 2 : 1);
-#endif
+#endif /* STYLE */
    tindex++;
-   if (type == NOISE)
-   {
-      if (tp [tindex] == NULL) goto restart;
-      if (separator [tindex] == ' ' || separator [tindex] == ',')
-         goto get_arg1;
-   }
 
 #ifdef PLSCLARIFY
    if ((bitest (STATUS, PLSCLARIFY) && refno <= LLOC) || continuation)
@@ -3358,9 +3408,6 @@ get_arg2:
       amatch = bmatch;
 #endif
       tindex++;
-      if (type == NOISE)
-         goto get_arg2;
-
       value [ARG2] = refno;
       value [STATUS] = 2;
    }
@@ -3548,6 +3595,7 @@ int query (int textref)
    {
       query_flag = 1;
       getinput (reply, 10);
+      if (loop > 1) return (0);
 #if CONSOLE
       scrchk (NULL);
 #endif /* CONSOLE */
@@ -3834,7 +3882,7 @@ try_again:
                   if (ADVLIB && mode != STARTGAME)
                   {
                      PRINTF("You have no saved games to restore.\n")
-                     loop = 1; return;
+                     loop = 1; return (0);
                   }
                   PRINTF (
    "Can't see any saved games here, but you may know of some elsewhere.\n")
@@ -4219,7 +4267,7 @@ restore_it:
                      diffs = d;
                      diffsz = diflen;
                      dptr = diffs + len;
-                     memcpy (image, IMAGE, sizeof(IMAGE));
+                     memcpy (image, IMAGE, IMAGE_SIZE);
                      fread (&len, 1, sizeof (int), game_file);
                      edptr = diffs + len;
                   }
@@ -5400,7 +5448,7 @@ int parse_args(int argc, char **argv)
          continue;
       }
       kwrd = *argv + 1;          /* Point at the keyword specifier */
-      if (*kwrd == '-') kwrd++;  /* Skip GNU-style prefix */
+      if (*kwrd == '-' && *(kwrd + 1)) kwrd++;  /* Skip GNU-style prefix */
       opt = kwrd + 1;            /* Point at option value, if any */
       if (*opt == '=') opt++;    /* Skip optional '=' */
       if (!*opt && strchr ("Brclso", *kwrd) &&  /* Cater for old-style... */
@@ -5439,8 +5487,10 @@ int parse_args(int argc, char **argv)
          else end_pause = 1 - end_pause;
          continue;
       }
+#if !CGI
       else if (*kwrd == 'n')
          new_game = 1;
+#endif /* !CGI */
       else if (*kwrd == 'v')
       {
          printf ("%s.\n", GAME_ID);
@@ -5529,6 +5579,9 @@ int parse_args(int argc, char **argv)
          puts ("    -C                  Force console (non-browser) display");
          puts ("    -B[browser]         Force display through browser (default)");
 #endif /* HTTP */
+#if CGI
+         puts ("    -- <command>        Submits player commandfor execution");
+#else /* !CGI */
          puts ("    -b[0|1|all]         invert or specify blank line suppression level");
          puts ("    -p[0|1]             invert or specify pausing before exit");
 #ifdef USEDB
@@ -5548,6 +5601,7 @@ int parse_args(int argc, char **argv)
          puts ("    -s<W>.<H>[.<M>]     set screen size and margin");
 #ifndef MSDOS
          puts ("    -o[<baudrate>]      set output speed for authentic experience\n");
+#endif /* CGI */
 #endif /* MSDOS */
          puts ("Two information only options:");
          puts ("    -v                  print version info and exit");
@@ -5607,12 +5661,12 @@ int parse_args(int argc, char **argv)
       }
 #endif /* UNDO */
 
-#ifdef ADVCONTEXT
-      else if (*kwrd == 'x' || *kwrd == 'y' || *kwrd == '\0')
+#ifdef CGI
+      else if (*kwrd == 'x' || *kwrd == 'y' || *kwrd == 'n' || *kwrd == '-')
       {
-         mode = *kwrd == 'x' ? STARTGAME : HAVECMD;
+         mode = *kwrd == 'x' || *kwrd == 'n'  ? STARTGAME : HAVECMD;
          strncpy (extcom, opt, sizeof (extcom));
-         if (*kwrd != 'x')
+         if (*kwrd == 'y' || *kwrd == '-')
          {
             while (--argc)
             {
@@ -5623,7 +5677,10 @@ int parse_args(int argc, char **argv)
                strcat (extcom, *argv);
             }
             break;
+            *kwrd = 'y';
          }
+         else 
+           *kwrd = 'x';
          if (*log_path == '\0')
          {
             strcpy (log_path, autoname + 1);
@@ -5631,12 +5688,12 @@ int parse_args(int argc, char **argv)
             store_conf (LOGFILE, UMODE);
          }
       }
-#endif /* ADVCONTEXT */               
+#endif /* CGI */
    }
 #if CONSOLE
 #if HTTP
 #  if OSX
-   if (!mode) mode = HTTP
+   if (!mode) mode = HTTP;
 #else
    if (!mode) mode = getenv("DISPLAY") ? HTTP : CONSOLE;
 #endif /* OSX */
@@ -5651,9 +5708,6 @@ int parse_args(int argc, char **argv)
 #if ADVLIB
    char *advturn (char *cmd)
 #else
-#  if OSX
-      extern void shutterm(int);
-#  endif /* OSX */
    int main (int argc, char **argv)
 #endif /* ADVLIB  */
 {
@@ -5661,7 +5715,6 @@ int parse_args(int argc, char **argv)
 #if ADVLIB
    char *cptr;
 #endif
-
    if (!text_buf)
    {
       text_buf = advalloc (text_buf_len);
@@ -5764,7 +5817,7 @@ int parse_args(int argc, char **argv)
 
    if (com_name && !new_game) new_game = 1;
 
-   memset (IMAGE, '\0', sizeof (IMAGE));
+   memset (IMAGE, '\0', IMAGE_SIZE);
    if (initialise (prog) != 0)
    {
       printf ("Sorry, unable to set up the world.\n");
@@ -5864,16 +5917,24 @@ run_it:
       }
 #endif /* UNDO */
 
-#if ADVLIB
+#if ADVLIB || CGI
       {
          if (mode == LOADGAME) mode = STARTGAME;
          if (loop > 1)
+         {
+#if ADVLIB
            return (obuf);
+#else
+           return (0);
+#endif
+         }
       }
-#endif /* ADVLIB */
+#endif /* ADVLIB || CGI */
 #if CGI
       if (loop > 1)
+#ifdef ADVCONTEXT
         exit (value [ADVCONTEXT]);
+#endif /*ADVCONTEXT */
 #endif /* CGI */
       loop = 0;
       if (quitting) 
@@ -5895,7 +5956,7 @@ run_it:
 #if WINDOWS
          chdir(odir);
 #endif /* WINDOWS */
-#if ADVLIB || CGI
+#if ADVLIB
          *obuf = 'f';
          quitting = 0;
          return (obuf);
@@ -5904,7 +5965,7 @@ run_it:
          free (obuf);
          if (scratch)
            free (scratch);
-#if OSX
+#if OSX && !ADVLIB
            shutterm(2); /* Console or browser: shut the terminal window */
 #endif /* OSX */
          return (255);
@@ -6238,7 +6299,7 @@ int bitest (int a1, int a2)
       bitadr++;
       a2 -= 16;
    }
-   return (*bitadr & 1 << a2);
+   return (*bitadr & 1 << a2) ? 1 : 0;
 }
 /*===========================================================*/
 int lbitest (int a1, int a2, int *a3, short *a4)
@@ -6250,11 +6311,11 @@ int lbitest (int a1, int a2, int *a3, short *a4)
       if (a1 <= LVERB)
       {
          if (a2 == 0)
-            return (a1 <= LOBJ && a1 >= FOBJ);
+            return (a1 <= LOBJ && a1 >= FOBJ) ? 1 : 0;
          else if (a2 == 1)
-            return (a1 <= LLOC && a1 >= FLOC);
+            return (a1 <= LLOC && a1 >= FLOC) ? 1 : 0;
          else if (a2 == 2)
-            return (a1 >= FVERB);
+            return (a1 >= FVERB) ? 1 : 0;
    #if STYLE >= 20
          a2 -= 3;
    #endif
@@ -6270,7 +6331,7 @@ int lbitest (int a1, int a2, int *a3, short *a4)
       bitadr++;
       a2 -= 16;
    }
-   return (*bitadr & 1 << a2);
+   return (*bitadr & 1 << a2) ? 1 : 0;
 }
 /*===========================================================*/
 void flush_command (void)
@@ -6374,11 +6435,11 @@ void verbatim (int arg)
 int test (char *type)
 {
    if (strcmp(type, "cgi") == 0)
-      return (CGI);
+      return (CGI ? 1 : 0);
    if (strcmp(type, "doall") == 0)
-      return (value_all);
+      return (value_all ? 1 : 0);
    if (strcmp(type, "html") == 0)
-      return (html_ok);
+      return (html_ok ? 1 : 0);
    PRINTF2 ("GLITCH! Bad test type: %s\n", type);
    return (0);
 }
@@ -6431,21 +6492,20 @@ void show_data (void)
 /*===========================================================*/
 #ifdef UNDO
 
-int inv_check (int mode)
+void inv_check (void)
 {
    int i;
-   if (mode == 0)
-   {
-      memcpy (inhand, location, LOCS_SIZE * sizeof(int));
-      return (0);
-   }
+   int diff = 0;
    for (i = 0; i <= LOBJ; i++)
    {
       if ((inhand[i] == INHAND && location[i] != INHAND) ||
           (inhand[i] != INHAND && location[i] == INHAND))
-             return (1);
+      {
+         diff = 1;
+         break;
+      }
    }
-   return (0);
+   bitmod (diff ? 's' : 'c', UNDO_STAT, UNDO_INV);
 }
 /*===========================================================*/
 int checkdo (void)
@@ -6484,14 +6544,12 @@ void  undo (void)
 {
    int cnt;
    int acnt;
-      
-   if ((cnt = checkdo ()) < 0)
+   if ((cnt = checkdo ()) < 0)  /* Get number of commands to undo */
       return;
    if (diffsz == 0 || edptr <= diffs + 4)
       acnt = 0;
    else
    {
-      inv_check (0);
       for (acnt = 0; acnt < cnt; acnt++)
       {
          if (edptr <= diffs + 4)
@@ -6502,14 +6560,33 @@ void  undo (void)
             int adr;
             edptr -= 4;
             adr = 256 * (*edptr) + *(edptr + 1);
-            if (adr)
-               *(IMAGE + adr) = *(edptr + 2);
-            else
-               break;
+            if (!adr) break;
+            *(IMAGE + adr) = *(edptr + 2);
          }
          edptr += 4;
+/* This is ugly, but I cannot work out why the CGI mode saves differences
+ * twice per input, while the ADVLIB mode does not. So the workaround is to
+ * undo in the CGI mode twice as many moves as requested. Can't do it just by
+ * doubling the count returned by checkdo(), because the number of loops
+ * actually performed is echoed at players as the number of commands undone.
+ */
+ 
+#ifdef CGI
+         if (edptr <= diffs + 4)
+            break;
+         edptr -= 4;
+         while (edptr > diffs)
+         {
+            int adr;
+            edptr -= 4;
+            adr = 256 * (*edptr) + *(edptr + 1);
+            if (!adr) break;
+            *(IMAGE + adr) = *(edptr + 2);
+         }
+         edptr += 4;
+#endif /* CGI */
       }
-      bitmod (inv_check (1) ? 's' : 'c', UNDO_STAT, UNDO_INV);
+      inv_check ();
    }
 
    value [UNDO_STAT] = acnt;
@@ -6519,7 +6596,7 @@ void  undo (void)
 #endif
    bitmod (cnt > acnt ? 's' : 'c', UNDO_STAT, UNDO_TRIM);
    value[ADVCONTEXT] = 0;
-   memcpy (image, IMAGE, sizeof (IMAGE));
+   memcpy (image, IMAGE, IMAGE_SIZE);
    return;
 }
 /*===========================================================*/
@@ -6535,7 +6612,6 @@ void redo (void)
       acnt = 0;
    else
    {
-      inv_check (0);
       for (acnt = 0; acnt < cnt; acnt++)
       {
          if (edptr > dptr)
@@ -6544,10 +6620,8 @@ void redo (void)
          {
             int adr = 256 * (*edptr) + *(edptr + 1);
             edptr += 4;
-            if (adr)
-               *(IMAGE + adr) = *(edptr - 1);
-            else
-               break;
+            if (!adr) break;
+            *(IMAGE + adr) = *(edptr - 1);
          }
          if (edptr == dptr)
          {
@@ -6555,7 +6629,8 @@ void redo (void)
             break;
          }
       }
-      bitmod (inv_check (1) ? 's' : 'c', UNDO_STAT, UNDO_INV);
+      inv_check ();
+      memcpy (image, IMAGE, IMAGE_SIZE);
    }
    value [UNDO_STAT] = acnt;
 #ifdef ALL

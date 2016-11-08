@@ -1,5 +1,92 @@
+-------------------------------------------------------------------------
 
-Niew in 12.64
+New in 12.72
+
+1. JS mode now displays a "Play again" button when the game is
+   terminated. (NB: this is not possible in the browser mode!)
+
+-------------------------------------------------------------------------
+
+New in 12.71
+
+1. In ADVLIB mode, REPEAT_PROC will now skip repeat blocks preceding
+   the one that requested player input. This means such blocks no longer
+   get executed twice!
+
+2. Main data arrays (IMAGE and image) are now forced to align on int
+   memory boundary -- this cures a nasty UNDO problems in JS and CGI modes.
+
+3. In the CGI mode, -h no longer show options not applicable in that mode.
+
+-------------------------------------------------------------------------
+
+New in 12.70
+
+1. Eliminated all setjmp/longjmp calls!
+
+2. Replaced mode specification via the cgi variable with a more
+   transparent combination of the mode variable and distinct build
+   modes (the default CONSOLE/HTTP, CONSOLE, ADVLIB and CGI).
+
+3. In the CGI mode, the -x and -y keywords are now deprecated. 
+   Use -n instead of -x. Use -- instead of -y. For either -- or -y
+   the rest of the command line is interpreted as a command 
+   (e.g. -- GET LAMP). 
+
+4. Fixed handling of 'noise' command words.
+
+5. Modified the VOCAB directive to honour replacement test (arg 4)
+   in vocabulary initialisation aclls (arg 1 being 0).
+
+-------------------------------------------------------------------------
+
+New in 12.69
+
+1. Added support for the optional special variable ENTNAME to display
+   name of entity pointed to by this when used in the nested text
+   syntax {ENTNAME}.
+
+2. If ENTNAME defined, and if no exact match is found for a word in
+   player's command, then before proceeding with approximate matching,
+   check that word against the stored complete list of entity names
+   (translating full stops into underscores, to avoid the parser 
+   splitting entity names containing full stops).
+
+-------------------------------------------------------------------------
+
+New in 12.68
+
+1. Fixed suppression of abbreviations on initial query for game to restore.
+
+2. In pure JavaScript, ifhtml is now always true.
+
+3. Fixed end pause handling in the library mode.
+
+4. Fixed initial restore in the library mode.
+
+5. Improved OSX builds to a avoid proliferation of terminal windows.
+
+6. Fixed MSDOS builds.
+
+7. Full game initialisation is now performed on startup in all
+   circumstances, including the case of game in progress being restored.
+
+8. Added EXEC 17 and EXEC 18 to special(). The former stores in memory
+   current locations of all objects (intended to be called in an INIT
+   section); the latter returns the stored location of a given object.
+   The purpose is to simplify Adv440 (and perhaps 660 and 770)
+   implementation of dwarves, to reflect the Fortran original.
+
+9. NB: Safari 9 and MS Edge are now also known to work with the pure
+   Javascript builds of A-code games.  
+
+10. Non-ANSI C support removed.
+
+11. In the console mode, suppress leading blanks when splitting lines.
+
+------------------------------------------------------------------------
+
+New in 12.64
 
 1. Fixed calculation of block-centre offset.
 

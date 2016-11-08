@@ -178,7 +178,7 @@ int process_saved (int action, char *name)
 }
 
 /*====================================================================*/
-#if OSX && !defined(ADVLIB)
+#if OSX && !ADVLIB
 /* This is a horrible OSX kludge to shut the unwanted terminal window
  * when the game exits.
 */
@@ -336,7 +336,7 @@ int browser_read (char *command, int time_limit)
       if (!ready)
       {
         fprintf (stderr, "*** No response from browser! ***\n");
-#if OSX && !defined(ADVLIB)
+#if OSX && !ADVLIB
         shutterm(1);
 #endif /* OSX && !ADVLIB */
         exit (1);
@@ -508,7 +508,7 @@ void invoke_browser (char *exe, int timeout)
       if (fork() > 0) exit (0);  /* Parent process exits */
       setsid ();                 /* New process group */
       close (0); close (1); close (2); /* Close stdin, stdout, stderr */
-#if OSX && !defined(ADVLIB)
+#if OSX && !ADVLIB
    shutterm(0);
 #endif /* OSX && !ADVLIB */
    
