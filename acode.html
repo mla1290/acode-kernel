@@ -3,7 +3,7 @@
 <head>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta charset="utf-8">
-<script src='acode.js'></script>
+%JAVASCRIPT%
 <script type="text/javascript"><!--
 var moveLimit = 200;
 var compact = 0;
@@ -43,9 +43,9 @@ function shutit(text)
 }
 function init()
 {
-  FS.mkdir('/acode');
-  FS.mount(IDBFS, {}, '/acode');
-  FS.chdir('/acode');
+  FS.mkdir('/%NAME%');
+  FS.mount(IDBFS, {}, '/%NAME%');
+  FS.chdir('/%NAME%');
   FS.syncfs(true, init2);
 }
 function init2(err)
@@ -72,6 +72,23 @@ function init2(err)
         document.getElementById('youcan').style.display = 'inline';
         if (gameList[i].match(/^\./))
           { document.getElementById('resume').style.display = 'inline' }
+        else if (gameInfo[0] == 'Adv550' || gameInfo[0] == 'Adv660')
+        {
+          if (first)
+          {
+            first = 0;
+            savedGames.innerHTML += '<br>&nbsp<br>' + gameInfo[0] +
+              ' does not support loading a saved game at start, but you ' +
+                'have the following saved games:';
+          }
+          savedGames.innerHTML += 
+            (count == 0 ? '<br>' : '&nbsp;&nbsp') + 
+              '<b>' + gameList[i] + '</b>';
+          if (++count == 5)
+            count = 0;
+          if (i < gameList.length - 1)
+            savedGames.innerHTML += ', ';
+        }
         else
         {
           if (first)
@@ -245,7 +262,7 @@ onclick="javascript:startit('_START_')" type="button">
 <span id=saved></span>
 </p>
 <p>If you have any problems getting the game working or with the game
-itself, feel free to drop me a line at <i><b>mla@mipmip.org</b></i>.</p>
+itself, please feel free to drop me a line at <i><b>mla@mipmip.org</b></i>.</p>
 <p align=center>This JavaScript version of the game is made possible by
 the magic of <b>Emscripten</b><br>
 (<a href="http://kripken.github.io/emscripten-site/"><i>http://kripken.github.io/emscripten-site/</i></a>).

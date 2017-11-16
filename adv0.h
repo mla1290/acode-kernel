@@ -1,5 +1,6 @@
-/* adv0.h: A-code kernel - copyleft Mike Arnautov 1990-2016.
- * Licensed under the Modified BSD Licence (see the supplied LICENCE file). 
+/* adv00.c: A-code kernel - copyright Mike Arnautov 1990-2016, licensed
+ * under GPL (version 3 or later) or the Modified BSD Licence, whichever
+ * is asserted by the supplied LICENCE file.
  *
  * 04 Apr 16   MLA             Added loop, to replace setjmp/longjmp.
  * 03 Mar 16   MLA             Removed non-ANSI C support.

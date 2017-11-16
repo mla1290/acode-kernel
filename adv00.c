@@ -1,8 +1,13 @@
-/* adv00.c: A-code kernel - copyright Mike Arnautov 1990-2016.
- * Licensed under the Modified BSD Licence (see the supplied LICENCE file). 
+/* adv00.c: A-code kernel - copyright Mike Arnautov 1990-2016, licensed
+ * under GPL (version 3 or later) or the Modified BSD Licence, whichever
+ * is asserted by the supplied LICENCE file.
  */
-#define KERNEL_VERSION "12.72, 08 Nov 2016"
+#define KERNEL_VERSION "12.73, 09 Jan 2017"
 /*
+ * 09 Jan 17   MLA        bug: initialise html_ok to 0 if CONSOLE.
+ * 05 Jan 17   MLA        Removed readline.h and history.h dependency.
+ * 30 Dec 16   MLA        BUG: CGI: fixed save/restore of player command.
+ * 28 Dec 16   MLA        BUG: Zero obuf on entry to advturn() in ADVLIB mode!
  * 08 Nov 16   MLA        BUG: Don't save undo changes in CGI unless HAVECMD!
  * 26 Aug 16   MLA        Bug: Don't skip saveing changes in the CGI mode!
  * 23 Aug 16   MLA        Bug: Forced correct memory alignement in JS mode.
@@ -539,8 +544,7 @@ void shift_down (char *, int);
 extern int process_saved (int, char *);
 
 #ifndef NO_READLINE
-#include "readline/readline.h"
-#include "readline/history.h"
+char *readline(char *);
 char *prompt_line;
 char *prompt_ptr;
 #endif /* NO_READLINE */
@@ -647,12 +651,19 @@ int amatch = 1;
 #ifdef DWARVEN
    int extra_dwarvish = 0;
 #endif
+
 #if STYLE == 10
    int justify = 1;
 #else
    int justify = 0;
 #endif
+
+#if CONSOLE
+int html_ok = 0;
+#else
 int html_ok = 1;
+#endif
+
 int compress;
 char compact[2];
 
@@ -3364,7 +3375,6 @@ get_arg1:
    value [ARG1] = refno;
    value [STATUS] = 1;
 
-get_arg2:
 #if STYLE >= 11
    *orig2 = '\0';
 #endif
@@ -3960,9 +3970,6 @@ got_name:
          {
             make_name (autoname, save_name);
 #ifdef ADVCONTEXT
-#if ADVLIB
-            if (value [ADVCONTEXT] == 0) value [ADVCONTEXT] = 1;
-#endif /* ADVLIB */
             *qcon = value [ADVCONTEXT];
 #endif /* ADVCONTEXT */
          }
@@ -3998,7 +4005,7 @@ got_name:
          CHKSUM(IMAGE + OFFSET_LOCBIT, LOCBIT_SIZE)
          CHKSUM(IMAGE + OFFSET_VARBIT, VARBIT_SIZE)
 #ifdef ADVCONTEXT
-         if (ADVLIB && key == 998)
+         if ((ADVLIB || CGI) && key == 998)
          {
             CHKSUM(qwords, sizeof(qwords));
             CHKSUM(qvals, sizeof(qvals));
@@ -4007,7 +4014,7 @@ got_name:
          fwrite (&chksum, sizeof (int), 1, game_file);
          fwrite (tval, 1, sizeof(time_t), game_file);
          fwrite (IMAGE, 1, IMAGE_SIZE, game_file);
-         if (ADVLIB && key == 998)
+         if ((ADVLIB || CGI) && key == 998)
          {
             fwrite (qwords, sizeof (char), sizeof (qwords), game_file);
             fwrite (qvals, sizeof (char), sizeof (qvals), game_file);
@@ -4144,7 +4151,7 @@ restore_it:
             fread (scratch, 1, imgsiz, game_file);
          }
 #if defined(ADVCONTEXT)
-         if (ADVLIB && key == 999)
+            if ((ADVLIB || CGI) && key == 999)
          {
             fread (qwords, sizeof (char), sizeof (qwords), game_file);
             fread (qvals, sizeof (char), sizeof (qvals), game_file);
@@ -4204,7 +4211,7 @@ restore_it:
             CHKSUM(scratch + plabo, plabs)
             CHKSUM(scratch + varbo, varbs)
 #ifdef ADVCONTEXT
-            if (ADVLIB && key == 999)
+            if ((ADVLIB || CGI) && key == 999)
             {
                CHKSUM(qwords, sizeof(qwords));
                CHKSUM(qvals, sizeof(qvals));
@@ -5587,7 +5594,6 @@ int parse_args(int argc, char **argv)
 #ifdef USEDB
          puts ("    -d<dbsdir>          specify dbs directory");
 #endif /* USEDB */
-         puts ("    -c<cominfile>       replay game from log");
 #ifdef UNDO
          if (undo_def != -2)
             puts ("    -u{0|1|none}        override default UNDO status");
@@ -5600,7 +5606,9 @@ int parse_args(int argc, char **argv)
          puts ("    -j[0|1]             invert or specify right-justification of text");
          puts ("    -s<W>.<H>[.<M>]     set screen size and margin");
 #ifndef MSDOS
+#if CONSOLE
          puts ("    -o[<baudrate>]      set output speed for authentic experience\n");
+#endif /* CONSOLE */
 #endif /* CGI */
 #endif /* MSDOS */
          puts ("Two information only options:");
@@ -5714,6 +5722,7 @@ int parse_args(int argc, char **argv)
    int new_game = 0;
 #if ADVLIB
    char *cptr;
+   if (obuf) *obuf = '\0';
 #endif
    if (!text_buf)
    {
@@ -5878,7 +5887,7 @@ int parse_args(int argc, char **argv)
       special (997, &value [0]);
       autoname = truname;
    }
-   else if (mode == HAVECMD)
+   else if (mode == HAVECMD) /* Not in queries! */
       special (999, &value [0]);
    else
 #endif /* ADVCONTEXT */
@@ -6440,7 +6449,6 @@ int test (char *type)
       return (value_all ? 1 : 0);
    if (strcmp(type, "html") == 0)
       return (html_ok ? 1 : 0);
-   PRINTF2 ("GLITCH! Bad test type: %s\n", type);
    return (0);
 }
 /*===========================================================*/

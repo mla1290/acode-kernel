@@ -1,5 +1,12 @@
 -------------------------------------------------------------------------
 
+New in 12.73
+
+1. In the ADVLIB mode, a null command results just in a prompt, instead of
+   echoing the output of the previous non-null command.
+
+-------------------------------------------------------------------------
+
 New in 12.72
 
 1. JS mode now displays a "Play again" button when the game is
@@ -35,7 +42,7 @@ New in 12.70
 
 4. Fixed handling of 'noise' command words.
 
-5. Modified the VOCAB directive to honour replacement test (arg 4)
+5. Modified the VOCAB directive to honour replacement text (arg 4)
    in vocabulary initialisation aclls (arg 1 being 0).
 
 -------------------------------------------------------------------------
