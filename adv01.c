@@ -1,7 +1,8 @@
-/* adv00.c: A-code kernel - copyright Mike Arnautov 1990-2016, licensed
+/* adv01.c: A-code kernel - copyright Mike Arnautov 1990-2016, licensed
  * under GPL (version 3 or later) or the Modified BSD Licence, whichever
  * is asserted by the supplied LICENCE file.
  *
+ * 02 Dec 17   MLA             Got rid of shutterm().
  * 03 Mar 16   MLA             Removed non-ANSI C support.
  * 24 Feb 16   MLA             Added shutterm() for OSX build (OSX sucks too!)
  * 21 Feb 16   MLA             Offloaded some macro fiddling to adv0.h.
@@ -179,46 +180,6 @@ int process_saved (int action, char *name)
 }
 
 /*====================================================================*/
-#if OSX && !ADVLIB
-/* This is a horrible OSX kludge to shut the unwanted terminal window
- * when the game exits.
-*/
-void shutterm(int init)
-{
-   static char winname[80];
-   char reply[80];
-   char query[160];
-   FILE *fh;
-   int i = 0;
-   if (init == 0)
-   {
-      *winname = '\0';
-      fh = popen("osascript -e 'tell application \"Terminal\" to get the name of window 1'", "r");
-      fgets(winname, 79, fh);
-      pclose(fh);
-      if (strstr(winname, "-bash ")) *winname = '\0'; /* Running from bash! */
-   }
-   else
-   {
-      while (1)
-      {
-         *reply = '\0';
-         sprintf(query, "osascript -e 'tell application \"Terminal\" to get the name of window %d' 2>/dev/null", ++i);
-         fh = popen(query, "r");
-         fgets(reply, 79, fh);
-         pclose(fh);
-         if (!*reply) break;
-         if (strcmp(reply, winname) == 0)
-         {
-            sprintf(query, "osascript -e 'tell application \"Terminal\" to close window %d'", i);
-            system(query);
-            break;
-         }
-      }
-   }
-}
-#endif /* OSX && !ADVLIB */
-/*====================================================================*/
 #if HTTP
 
 int lsock = 0;
@@ -337,9 +298,6 @@ int browser_read (char *command, int time_limit)
       if (!ready)
       {
         fprintf (stderr, "*** No response from browser! ***\n");
-#if OSX && !ADVLIB
-        shutterm(1);
-#endif /* OSX && !ADVLIB */
         exit (1);
       }
       adrlen = sizeof(radr);
@@ -509,9 +467,6 @@ void invoke_browser (char *exe, int timeout)
       if (fork() > 0) exit (0);  /* Parent process exits */
       setsid ();                 /* New process group */
       close (0); close (1); close (2); /* Close stdin, stdout, stderr */
-#if OSX && !ADVLIB
-   shutterm(0);
-#endif /* OSX && !ADVLIB */
    
       i = open ("/dev/null", O_RDWR); dup (i); dup (i); /* Reopen them */
    }
@@ -521,7 +476,15 @@ void invoke_browser (char *exe, int timeout)
    rsp = browser_read (NULL, timeout); /* Accept initial call (page request?) */
    if (rsp != 'R')
    {
-      if (rsp == 'N') send_page();          /* Send the initial page */
+      if (rsp == 'N')
+      {
+#if WINDOWS
+        usleep (1000);
+#else
+        sleep (1);         /* Give the browser (Firfox!) time to initialise */
+#endif /* WINDOWS */
+        send_page();       /* Send the initial page */
+      }
       while ((rsp = browser_read (NULL, timeout)) == 'N')
         send_null();
    }

@@ -1,5 +1,11 @@
 -------------------------------------------------------------------------
 
+New in 12.74
+
+1. Removed the no longer used sutterm() routine. Affects only OSX build.
+
+-------------------------------------------------------------------------
+
 New in 12.73
 
 1. In the ADVLIB mode, a null command results just in a prompt, instead of
@@ -23,7 +29,7 @@ New in 12.71
 2. Main data arrays (IMAGE and image) are now forced to align on int
    memory boundary -- this cures a nasty UNDO problems in JS and CGI modes.
 
-3. In the CGI mode, -h no longer show options not applicable in that mode.
+3. In the CGI mode, -h no longer shows options not applicable in that mode.
 
 -------------------------------------------------------------------------
 
@@ -42,7 +48,7 @@ New in 12.70
 
 4. Fixed handling of 'noise' command words.
 
-5. Modified the VOCAB directive to honour replacement text (arg 4)
+5. Modified the VOCAB directive to honour replacement test (arg 4)
    in vocabulary initialisation aclls (arg 1 being 0).
 
 -------------------------------------------------------------------------
@@ -97,7 +103,7 @@ New in 12.64
 
 1. Fixed calculation of block-centre offset.
 
-2. Added pure JavaScript support (use Emscripten to generate JS code).
+2. Added pure JavaScript support (via Emscripten to generate JS code).
    This uses IndexedDB browser storage and this is currently known to
    be compatible with Firefox (version 4 and higher), Chrome (version 11
    and higher and IE (version 10 and higher).

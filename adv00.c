@@ -2,8 +2,11 @@
  * under GPL (version 3 or later) or the Modified BSD Licence, whichever
  * is asserted by the supplied LICENCE file.
  */
-#define KERNEL_VERSION "12.73, 09 Jan 2017"
+#define KERNEL_VERSION "12.74, 02 Dec 2017"
 /*
+ * 02 Dec 17   MLA        Unwanted shutterm() exterminated.
+ * 08 Nov 17   MLA        BUG: Don't reuse 'exact' in find_word.
+ * 21 Jun 17   MLA        BUG: set html_ok if invoking a browser! 
  * 09 Jan 17   MLA        bug: initialise html_ok to 0 if CONSOLE.
  * 05 Jan 17   MLA        Removed readline.h and history.h dependency.
  * 30 Dec 16   MLA        BUG: CGI: fixed save/restore of player command.
@@ -1786,6 +1789,7 @@ void outbuf (int terminate)
       if (mode == HTTP) 
       {
          end_pause = 0;
+         html_ok = 1; /* Browser mode, so need HTML! */
          http_offset = sizeof (HTTP_HEADER) + 8;
          invoke_browser (conf [BROWEXE], atoi (conf [INITTIME]));
       }
@@ -2928,6 +2932,7 @@ void find_word (int *type, int *refno, int *tadr, int which_arg)
    {
       int i;
       char cp;
+      int match = 0;
       for (i = 0; i <= LVAR; i++)
       {
          if (i >= LVERB && i < FVAR)
@@ -2943,13 +2948,13 @@ void find_word (int *type, int *refno, int *tadr, int which_arg)
             if (*wp != cp) break;
             if (*wp == '\0')
             {
-               exact = 1;
+               match = 1;
                break;
             }
             va++;
             wp++;
          }
-         if (exact)
+         if (match)
          {
             *refno = i;
             *tadr = *(ent_name + i);
@@ -5190,8 +5195,8 @@ char *cftext [] = {
    "# if the machine is busy, memory short and the js engine inefficient, you"EOL,
    "# never know..."EOL,
    "#"EOL,
-   "   TIMEOUT INVOCATION  30        # Up to 30 seconds to fully invoke browser"EOL,
-   "   TIMEOUT KEEPALIVE    2        # Keep-alive pings every 4 seconds"EOL,
+   "   TIMEOUT INVOCATION  45        # Up to 45 seconds to fully invoke browser"EOL,
+   "   TIMEOUT KEEPALIVE    2        # Keep-alive pings every 2 seconds"EOL,
    "   TIMEOUT GRACETIME    2        # Grace time for delayed pings"EOL,
    "#"EOL,
    "# Finally for the console mode only, some screen layout requirements."EOL,
@@ -5791,6 +5796,13 @@ int parse_args(int argc, char **argv)
      goto run_it;
    prog = *argv;
    strncpy(truname + 1, strrchr(*argv, SEP) + 1, sizeof(truname) - 1);
+#if OSX
+   {
+      char *cptr = strrchr (truname + 1, '_');
+   if (cptr && strcmp (cptr, "_browser") == 0)
+      *cptr = '\0';
+   }
+#endif /* OSX */
 #if HTTP
 #  if WINDOWS
    mode = HTTP;
@@ -5972,11 +5984,7 @@ run_it:
 #else /* !ADVLIB && !CGI */
          free (text_buf);
          free (obuf);
-         if (scratch)
-           free (scratch);
-#if OSX && !ADVLIB
-           shutterm(2); /* Console or browser: shut the terminal window */
-#endif /* OSX */
+         if (scratch) free (scratch);
          return (255);
 #endif /* ADVLIB || CGI */
       }
@@ -6994,7 +7002,7 @@ char *page[] =
    "<h3 align=center>",
    "=V",
    "</h3>\n",
-   "<p>This interface is can be used entirely from the keyboard, as long \n",
+   "<p>This interface can be used entirely from the keyboard, as long \n",
    "as the command input field remains in focus. Commands can be submitted\n",
    "by pressing the RETURN key and arrow keys can be used to recall and\n",
    "edit previous commands.</p>\n",
@@ -7019,7 +7027,7 @@ char *page[] =
    "this intro page &ndash; it's because it is in fact a cunning workaround\n",
    "for a browser mis-feature, no names named. By clicking on the 'Play'\n",
    "button you will ensure that the browser behaves itself and gives\n",
-   "keyboard focus to where the interface has requested it to be.)</p>\n",
+   "keyboard focus to where the interface requests it to be.)</p>\n",
    "</div>\n",
    "<div id=gameview style=display:none>\n",
    "<div id=\"console\">\n",

@@ -1,4 +1,4 @@
-/* adv00.c: A-code kernel - copyright Mike Arnautov 1990-2016, licensed
+/* adv00.c: A-code kernel - copyright Mike Arnautov 1990-2017, licensed
  * under GPL (version 3 or later) or the Modified BSD Licence, whichever
  * is asserted by the supplied LICENCE file.
  *
@@ -55,12 +55,17 @@
 #endif
 
 /* CGI can be a compilation symbol. It is one of the four key symbols 
- * to be always defined as 0 or 1.  It is kind of "external" ADVLIB.
+ * to be always defined as 0 or non-zero. It is kind of "external" ADVLIB.
  */
+#ifdef TURN         /* CGI symbol is deprecated */
+#  ifndef CGI
+#    define CGI
+#  endif /* CGI */
+#endif /* TURN */
 #ifdef CGI
 #  undef CGI
 #  define CGI 3
-#  ifndef ADVLIB
+#  ifndef ADVLIB    /* Probably not necessary any longer */
 #    define ADVLIB
 #  endif
 #else
