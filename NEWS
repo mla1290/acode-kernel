@@ -1,8 +1,35 @@
+
+-------------------------------------------------------------------------
+
+New in 12.75
+
+1. In order to support library mode use by QT5, stripped all line feeds
+   from HTML formatted output.
+
+2. Fixed output filter to replace " with &quot; in html-formatted centred
+   text (individual lines as well as blocks).
+
+3. Fixed the browser mode problem, which occasionally caused the browser
+   to come up showing lowercase 'k' and otherwise blank window.
+
+4. Fixed odd undo/redo counts in the CGI mode.
+
+5. Stripped off line feeds from HTML output (QT WebView doesn't like them!)
+
+6. Stopped nonsense output for locations with no description of any kind.
+
+7. Removed -u command line option as unnecessary.
+
+8. Scene word matching no longer accepts abbreviations.
+ 
+9. If SEEN flag is not declared, abbreviation and approximate matching are
+   restricted by object proximity (i.e. neither INHAND, nor HERE).
+
 -------------------------------------------------------------------------
 
 New in 12.74
 
-1. Removed the no longer used sutterm() routine. Affects only OSX build.
+1. Removed the no longer used shutterm() routine. Affects only OSX build.
 
 -------------------------------------------------------------------------
 

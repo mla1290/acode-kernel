@@ -1,4 +1,4 @@
-/* libtest.c: A-code kernel -- copyright Mike Arnautov 1990-2016, licensed
+/* libtest.c: A-code kernel -- copyright Mike Arnautov 1990-2018, licensed
  * under GPL (version 3 or later) or the Modified BSD Licence, whichever
  * is asserted by the supplied LICENCE file.
  *
@@ -40,7 +40,7 @@ int main(int argc, char **argv)
 /*
  * Set 1st menu entry.
  */
-  *lptr++ = html ? "_START_HTML" : "_START_TEXT_";
+  *lptr++ = html ? "_START_HTML_" : "_START_TEXT_";
 /*
  * Request '|' separated list of saved games (if any).
  */

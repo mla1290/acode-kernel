@@ -40,9 +40,26 @@
 /* Javascript requires ADVLIB */
 
 #ifdef JS
+#  undef JS
+#  define JS 1
 #  ifndef ADVLIB
 #    define ADVLIB
 #  endif
+#else
+#  define JS 0
+#endif
+
+
+/* QT requires ADVLIB */
+
+#ifdef QT
+#  undef QT
+#  define QT 1
+#  ifndef ADVLIB
+#    define ADVLIB
+#  endif
+#else
+#  define QT 0
 #endif
 
 /* IOS needs ADVLIB and its own header file */
@@ -230,6 +247,8 @@ extern void invoke_browser (char *, int);
 extern char *make_header (char *);
 extern void send_null (void);
 extern void send_page (void);
+extern void input_store(int, int *);
+extern void zap_text(void);
 #ifdef __WIN32
 extern void my_usleep (int);
 #endif /* __WIN32 */

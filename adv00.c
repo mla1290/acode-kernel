@@ -1,12 +1,29 @@
-/* adv00.c: A-code kernel - copyright Mike Arnautov 1990-2016, licensed
+/* adv00.c: A-code kernel - copyright Mike Arnautov 1990-2018, licensed
  * under GPL (version 3 or later) or the Modified BSD Licence, whichever
  * is asserted by the supplied LICENCE file.
  */
-#define KERNEL_VERSION "12.74, 02 Dec 2017"
+#define KERNEL_VERSION "12.75, 07 Nov 2018"
 /*
+ * 07 Nov 18   MLA        Bug: orphans: don't ignore the highest refno object.
+ * 02 Nov 18   MLA        Typo matching takes SEEN into account, if defined.
+ * 31 Oct 18   MLA        bug: resolve UNDO/REDO/ADVCONTEXT ifdef dependebcies.
+ *                        Bug: fix the "ing" check in word_update().
+ * 28 Oct 18   MLA        bug: nested_say must reject out of bound refnos.
+ * 16 Oct 18   MLA        bug: allow for there being just one declared object.
+ * 11 Oct 18   MLA        Bug: typo-matching no longer acknowledges distant
+ *                        objects.
+ * 28 Sep 18   MLA        Bug: sceneword matching should not accept
+ *                        abbreviations.
+ * 19 Aug 18   MLA        Removed Adv770-specific parsing fudge.
+ * 18 Aug 18   MLA        Bug: Fixed CGI move count oddities.
+ *                        Removed -u invocation option as pointless.
+ * 05 Jul 18   MLA        bug: Bail out of say() if text address is zero.
+ * 24 Jun 18   MLA        Finally split input_store() from special().
+ * 06 Jun 18   MLA        Stripped off line feeds from HTML output (for QT).
+ *                        Fixed HTML handling of " in centered lines and blocks.
  * 02 Dec 17   MLA        Unwanted shutterm() exterminated.
  * 08 Nov 17   MLA        BUG: Don't reuse 'exact' in find_word.
- * 21 Jun 17   MLA        BUG: set html_ok if invoking a browser! 
+ * 21 Jun 17   MLA        BUG: set html_ok if invoking a browser!
  * 09 Jan 17   MLA        bug: initialise html_ok to 0 if CONSOLE.
  * 05 Jan 17   MLA        Removed readline.h and history.h dependency.
  * 30 Dec 16   MLA        BUG: CGI: fixed save/restore of player command.
@@ -86,7 +103,7 @@
  * 24 Dec 11   MLA        Added BORDER config directive.
  *                        Background and text colour directives now
  *                        apply to input and submit button as well.
- * 23 Dec 11   MLA        Removed QT mode. 
+ * 23 Dec 11   MLA        Removed QT mode.
  *                        Readline now default, suppressed by NO_READLINE.
  *                        Slow capability now default, suppressed by NO_SLOW.
  * 21 Dec 11   MLA        Browser mode for Windows/MinGW (no Cygwin!).
@@ -140,7 +157,7 @@
  *                        bug: Don't define typed() for style < 11.
  * 12 Nov 08   MLA        Added QT mode.
  * 22 Oct 08   MLA        Bug: Fixed fakecom word retrieval in fake().
- * 02 Oct 08   MLA        Bug: Always check for FSPECIAL and LSPECIAL being 
+ * 02 Oct 08   MLA        Bug: Always check for FSPECIAL and LSPECIAL being
  *                        defined!
  * 21 Sep 08   MLA        Randomised texts should not repeat the same value.
  *                        Also, cyclic text switches now cycle independently.
@@ -154,7 +171,7 @@
  * 12 Apr 08   MLA        Pass game name in AJAXTEST call to play.
  * 10 Apr 08   MLA        AJAXTEST added for browser interface.
  * 09 Apr 08   MLA        BUG: Fixed detail display.
- * 06 Apr 08   R.Mathews  bug: add MacOS to the list of OS with the '/' 
+ * 06 Apr 08   R.Mathews  bug: add MacOS to the list of OS with the '/'
  *                        separator.
  * 03 Apr 08   MLA        Bug: outline() needs the terminate arg if using
  *                        readline.
@@ -175,7 +192,7 @@
  *             MLA        Corrected NOSLOW to be NO_SLOW.
  * 08 Apr 07   MLA        Added -o for output speed in cps (chars per second).
  *                        Allowed for different exec values in adv550.
- * 15 Oct 06   MLA        Reinstated HTML tag handling. 
+ * 15 Oct 06   MLA        Reinstated HTML tag handling.
  *                        Also added PROMPTED symbol processing.
  * 30 Jul 05   MLA        Cleaned up compiler warnings.
  * 25 May 05   MLA        BUG: Don't gripe for flags in excess of 15!
@@ -249,7 +266,7 @@
  * 16 Feb 03   MLA        bug: several small command handling bugs.
  * 14 Feb 03   MLA        Bug: Fixed '-l -c name' handling in command args.
  * 09 Feb 03   MLA        Use F/LFULL and F/LDIR. Also use SAY.
- * 04 Feb 03   MLA        Bug: fix qualifying by ARG2. 
+ * 04 Feb 03   MLA        Bug: fix qualifying by ARG2.
  *                        Also hacked in EXCEPT code.
  * 31 Jan 03   MLA        Virgin mode entirely file based -- no rapes! :-)
  * 26 Jan 03   MLA        bug: avoid looping in INITs even if code QUITs there.
@@ -286,7 +303,7 @@
  * 09 Dec 01   MLA        Allowed increasing text counts without
  *                        invalidating old saved games or relaxing checks.
  * 04 Dec 01   MLA        Save old_comline in CGI mode.
- * 27 Nov 01   MLA        Rationalised command line keyword handling. 
+ * 27 Nov 01   MLA        Rationalised command line keyword handling.
  * 25 Nov 01   MLA        Bug: fixed short/long/detail description juggling.
  *                        Added IGNORE_EOL.
  * 19 Nov 01   MLA        Fixed the "More?" query in new output framework.
@@ -298,7 +315,7 @@
  * 04 Nov 01   MLA        bug: Use of PLSCLARIFY must be conditional.
  * 03 Nov 01   MLA        Compress multiple LFs into at most two.
  * 02 Nov 01   MLA        Added BADSYNTAX handling;
- * 30 Oct 01   MLA        BUG: Even in STYLE == 1, implicit switches start 
+ * 30 Oct 01   MLA        BUG: Even in STYLE == 1, implicit switches start
  *                        from 0!
  * 20 Oct 01   MLA        BUG: Don't use AMBIGWORD when STYLE == 1 !
  * 18 Oct 01   MLA        Improved back compatibility with Platt's A-code.
@@ -379,7 +396,7 @@
  *                        Also, do own lowercasing to avoid trouble.
  * 26 Feb 91   MLA        Use flagged return instead of exit.
  * 23 Feb 91   MLA        Allowed variable bit fields.
- * 22 Feb 91   MLA        Corrected parser response to wrong syntax. 
+ * 22 Feb 91   MLA        Corrected parser response to wrong syntax.
  * 29 Dec 90   MLA        Reduced disk accesses via "locate buffers".
  * 27 Dec 90   MLA        Allowed flags and states with IFHERE/HAVE/NEAR.
  * 14 Dec 90   MLA        Allowed null keyword lists for (S)MOVE.
@@ -535,7 +552,7 @@
  * extern char *strncpy ();
  * extern void exit ();
  */
- 
+
 #if HTTP
    int http_offset = 0;
    char *brbuf;
@@ -548,6 +565,7 @@ extern int process_saved (int, char *);
 
 #ifndef NO_READLINE
 char *readline(char *);
+void add_history(char *);
 char *prompt_line;
 char *prompt_ptr;
 #endif /* NO_READLINE */
@@ -606,11 +624,7 @@ int *objlocs = NULL;
    unsigned char *dptr = NULL;
    unsigned char *edptr;
    int diffsz = 0;
-#ifdef NO_UNDO
-   int undo_def = -2;
-#else
    int undo_def = 0;
-#endif /* NO_UNDO */
 #endif
 char *prog;
 char *optr;
@@ -674,7 +688,7 @@ char compact[2];
    int end_pause = 1;
 #else
    int end_pause = 0;
-#endif /* PAUSE or WINDOWS */ 
+#endif /* PAUSE or WINDOWS */
 
 #if CGI
 int mode = CGI;
@@ -692,7 +706,7 @@ char *autoname;
 #include "adv4.h"
 #include "adv2.h"
 #include "adv5.h"
-  
+
 #ifdef AGAIN
    int done_again;
 #endif /* AGAIN */
@@ -772,7 +786,7 @@ char *lp;
 #define CHKSUM(X,Y)  for (cptr=(char *)X,cnt=1; \
                      (unsigned int)cnt<=(unsigned int)Y;cnt++,cptr++) \
                      {chksum+=(*cptr+cnt)*(((int)(*cptr)+cnt)<<4)+Y; \
-                     chksum&=07777777777L;} 
+                     chksum&=07777777777L;}
 
 #define RESTORING "Restoring game in progress...\n\n"
 
@@ -834,7 +848,7 @@ int keyword (int first, ...)
     while (val >= 0)
     {
        if (!KEY (val))
-       {  
+       {
           va_end (ap);
           return (0);
        }
@@ -878,7 +892,7 @@ short *btinit (short *root)
    }
    else
    {
-      if ((root = (short *)realloc 
+      if ((root = (short *)realloc
          (root, (*(root + 2) + BT_STP) * sizeof(short))) == NULL)
             return (NULL);
       BT_SIZE += BT_STP;
@@ -896,8 +910,8 @@ void btshow (short *root, char *text)
    while (iptr < root + *root)
    {
       fprintf (stderr, "Offset %d: Up %hd, L %hd, R %hd, B %hd, T: %s\n",
-         iptr - root, *(iptr + BT_UP), *(iptr + BT_UP + BT_LSIB), 
-            *(iptr + BT_UP + BT_RSIB), *(iptr + BT_BAL), 
+         iptr - root, *(iptr + BT_UP), *(iptr + BT_UP + BT_LSIB),
+            *(iptr + BT_UP + BT_RSIB), *(iptr + BT_BAL),
                (char *)(iptr + BT_TXT));
       iptr += BT_TXT + 1 + strlen ((char *) (iptr + BT_TXT)) / 2;
    }
@@ -915,7 +929,6 @@ void btcopy (char *start, int len, short *new_rec)
 int btcompare (char *word, char *cword)
 {
    int cchar, wchar;
-
    while (*word)
    {
       wchar = tolower ((unsigned char) *word++);
@@ -923,16 +936,16 @@ int btcompare (char *word, char *cword)
          return (*cword ? -1 : 0);
       cchar = (unsigned char) *cword++;
       if (wchar != cchar)
-         return (wchar > cchar ? 1 : -1);         
-   }       
-   return (0);
+         return (wchar > cchar ? 1 : -1);
+   }
+   return (*cword);
 }
 
 void sing_rot (short *root, int parent, int child, int dir)
 {
    int gparent = *(root + parent + BT_UP);
    int gchild = *(root + child + BT_UP - dir);
-   
+
    *(root + parent + BT_UP + dir) = *(root + child + BT_UP - dir);
    *(root + child + BT_UP - dir) = parent;
    *(root + parent + BT_BAL) -= *(root + child + BT_BAL);
@@ -1002,7 +1015,7 @@ short *btadd (short *root, char *word, int len)
          child = *(root + child + BT_UP + dir);
       }
    }
-   if (*root + reclen > BT_SIZE && 
+   if (*root + reclen > BT_SIZE &&
       (BT_SIZE > 65535L - reclen || (root = btinit (root)) == NULL))
          return (NULL);
    new_rec = root + (child = *root);
@@ -1021,7 +1034,7 @@ short *btadd (short *root, char *word, int len)
          {
             if (*(root + child + BT_BAL) == -dir)
                dub_rot (root, parent, child, dir);
-            else 
+            else
                sing_rot (root, parent, child, dir);
             break;
          }
@@ -1041,7 +1054,7 @@ int btfind (short *root, char *word)
 {
    int node;
    int dir;
-   
+
    if ((node = *(root + 1)) == 0)
       return (0);
    while (node)
@@ -1057,7 +1070,7 @@ void word_update (void)
 {
    char *aptr = text_buf;
    char *zptr;
-   
+
    while (1)
    {
       while (*aptr && ! isalpha (*aptr)) aptr++;
@@ -1065,11 +1078,14 @@ void word_update (void)
       zptr = aptr + 1;
       while (*zptr && isalpha (*zptr)) zptr++;
       if (zptr - aptr > 4 &&
-         *(zptr - 3) != 'i' && *(zptr - 2) != 'n' && *(zptr - 1) != 'g')
+         !(*(zptr - 3) == 'i' && *(zptr - 2) == 'n' && *(zptr - 1) == 'g'))
             btadd (word_buf, aptr, zptr - aptr);
       if (*zptr == '\0') break;
       aptr = zptr + 1;
-   }   
+   }
+#ifdef DEBUG
+   btshow (word_buf, "Collected words");
+#endif /* DEBUG */
    return;
 }
 #endif /* STYLE */
@@ -1077,15 +1093,15 @@ void word_update (void)
 #define MAX_BREAKS 100
 
 /* PRIVATE */
-#if defined(PLAIN) && (defined(MEMORY) || defined(PRELOADED))
+#if PLAIN && (defined(MEMORY) || defined(PRELOADED))
 #  define get_char(X) text[X]
 #else /* !PLAIN || (!MEMORY && !PRELOADED)*/
 /*===========================================================*/
 char get_char (int char_addr)
 {
-#ifndef PLAIN
+#if !PLAIN
    int mask;
-#endif /* not PLAIN */
+#endif /* !PLAIN */
 #if defined(MEMORY) || defined (PRELOADED)
    mask = (char_addr >> 4) & 127;
    if (mask == 0)
@@ -1101,7 +1117,7 @@ char get_char (int char_addr)
    int oldest_chunk;
    int new_addr;
    void file_oops ();
-   
+
    oldest_chunk = 0;
    buf_ptr = text;
    for (index = 0; index < SWAP; index++)
@@ -1127,7 +1143,7 @@ readit:
    if (fseek (text_file, new_addr, 0))
       file_oops ();
    chunk_start [index] = new_addr;
-   chunk_end [index] = fread (buf_ptr, sizeof (char), 
+   chunk_end [index] = fread (buf_ptr, sizeof (char),
       TEXT_CHUNK, text_file) + new_addr;
 #ifdef LOC_STATS
    fprintf (stderr, "Wanted %6d.  Buffer %3d: from %dK.\n",
@@ -1138,7 +1154,7 @@ readit:
 
 gotit:
    chunk_age [index] = locate_demands;
-#ifdef PLAIN
+#if PLAIN
    return (*(buf_ptr + char_addr - chunk_start [index]));
 #else /* not PLAIN */
    mask = (char_addr >> 4) & 127;
@@ -1147,15 +1163,15 @@ gotit:
    if (mask == 0)
       mask = 'X';
    mask = (17 * mask + 13) & 127;
-   return 
-      (*(buf_ptr + char_addr - chunk_start [index]) ^ mask ^ 
+   return
+      (*(buf_ptr + char_addr - chunk_start [index]) ^ mask ^
          title [char_addr % titlen]);
 #endif /* PLAIN */
 #endif /* SWAP */
 #ifdef READFILE
    void file_oops ();
    static int file_addr = -1;
-   char this_char;   
+   char this_char;
 
    if (file_addr != char_addr)
    {
@@ -1166,7 +1182,7 @@ gotit:
    }
    this_char = fgetc (text_file);
    file_addr++;
-#ifdef PLAIN
+#if PLAIN
    return (this_char);
 #else /* not PLAIN */
    mask = (char_addr >> 4) & 127;
@@ -1198,7 +1214,7 @@ void voc (int word, int what, int test, int vtext)
 {
    int tc;
    static int vc = 0;
-   
+
    if (word == 0)
       vc = 0;
    else
@@ -1211,9 +1227,9 @@ void voc (int word, int what, int test, int vtext)
       {
          outchar (',');
          outchar (' ');
-      }      
+      }
    }
-   if (vtext) 
+   if (vtext)
       say (0, vtext, 0);
    else if (word)
    {
@@ -1236,12 +1252,12 @@ int scrchk (char *iptr)
    char reply [160];
 
    if (mode != CONSOLE) return (0);
-   if (!iptr || com_file) 
+   if (!iptr || com_file)
    {
       lincnt = 0;
       return (0);
    }
-   
+
    while (*iptr && *iptr != '\n') iptr++;
 
    if (*iptr == '\n' && ++lincnt >= Screen - (compress ? 1 : 2))
@@ -1263,7 +1279,7 @@ int scrchk (char *iptr)
          PRINTF1 (reply);
 #ifdef NO_READLINE
          strcpy (reply + Margin, "? ");
-         PRINTF1 (reply);         
+         PRINTF1 (reply);
 #else
          memset (prompt_line, ' ', Margin);
          strcpy (prompt_line + Margin, "? ");
@@ -1280,7 +1296,7 @@ char *advalloc (int len)
    char *ptr;
    if ((ptr = (char *) malloc (len)) == NULL)
    {
-      fprintf (stderr, 
+      fprintf (stderr,
          "Failed to allocate a %d character memory chunk!\n", len);
       exit (1);
    }
@@ -1299,7 +1315,7 @@ char *advrealloc (char *buf, int newlen)
    return (ptr);
 }
 /*====================================================================*/
-/* Append a character to the formatted output buffer, while checking 
+/* Append a character to the formatted output buffer, while checking
  * for and preventing buffer overflow, as well as ensuring thet the
  * text remains null-terminated.
  */
@@ -1308,7 +1324,7 @@ void oputc (char c)
    int ofst = optr - obuf;       /* Number of chars currently in the buffer */
    if (ofst + 2 >= oblen)        /* Enough room for at least one more? */
    {
-      oblen += 4096;             
+      oblen += 4096;
       obuf = advrealloc (obuf, oblen);    /* Enlarge the buffer */
       optr = obuf + ofst;        /* Point to the right place in new buffer */
    }
@@ -1362,7 +1378,7 @@ void showline (char *cptr)
 void showchar (char c, char target)
 {
    FILE *fh = (target == 'L' ? log_file : stdout);
-   
+
 /* Non-breaking space conversion deliberately postponed until the last
  * possible moment, to avoid it being used for line breaks in non-HTML
  * modes.
@@ -1372,11 +1388,11 @@ void showchar (char c, char target)
 #ifndef NO_READLINE
    if (target == 'L')
       fputc (c, fh);
-   else 
+   else
    {
       *prompt_ptr++ = c; *prompt_ptr = '\0'; /* Add to potential prompt line */
       if (c == '\n')                         /* It wasn't a prompt line! */
-      { 
+      {
          if (*prompt_line)                   /* So print it */
             showline (prompt_line);
          prompt_ptr = prompt_line;
@@ -1390,7 +1406,7 @@ void showchar (char c, char target)
       fputc (c, fh);
       fflush (stdout);                          /* Make sure slowness is visible */
    }
-   else 
+   else
       fputc (c, fh);
 #endif /* NO_READLINE */
 }
@@ -1405,10 +1421,11 @@ char *ofilter (char *iptr, int html)
       else oputc ('<');
    }
    else if (!html) oputc (*iptr);
+   else if (*iptr == '"') oputs("&quot;");
    else if (*iptr == '>' || *iptr == '<')
       oputs (*iptr == '<' ? "&lt;" : "&gt;");
    else if (*iptr == TAG_END) oputc ('>');
-   else 
+   else
    {
       if (*iptr == ' ' && *(iptr + 1) == ' ' && html) oputs ("&nbsp;");
       oputc(*iptr);
@@ -1438,12 +1455,13 @@ char *centre_text_lines (char *iptr, int html)
       while (jptr < iptr)
       {
          if (*jptr == NBSP) oputs (html ? "&nbsp;" : " ");
+         else if (*jptr == '\n') oputs ("<br>");
          else ofilter (jptr, html);
          jptr++;
       }
       if (*iptr != '\n')
          break;
-      oputs (html ? "<br>\n" : "\n");
+      oputs (html ? "<br>" : "\n");
    }
    return (iptr);
 }
@@ -1458,11 +1476,10 @@ char *centre_block (char *iptr, int html)
    int lead = 4096;
    int mxl = 0;
    int i;
-   int type = *iptr++;
    char *jptr = iptr;
    int offset;
    char *bptr;
-   
+
    while (1)
    {
       bptr = jptr;
@@ -1483,17 +1500,18 @@ char *centre_block (char *iptr, int html)
       while (*iptr != '\n' && *iptr != BLOCK_END)
       {
          if (*iptr == NBSP) oputs (html ? "&nbsp;" : " ");
+         else if (*iptr == '\n') oputs ("<br>");
          else iptr = ofilter (iptr, html);
          iptr++;
       }
       if (*iptr != BLOCK_END)
-         oputs (html && type != QUOTE_START ? "<br>\n" : "\n");
+         oputs (html ? "<br>" : "\n");
       else
          break;
       iptr++;
    }
    if (!html) oputc ('\n');
-   
+
    return (*iptr == BLOCK_END ? iptr + 1 : iptr);
 }
 /*====================================================================*/
@@ -1504,7 +1522,7 @@ void format_buffer (int terminate, int html)
    int frag = (bptr > text_buf && *(bptr - 1) != '\n');
    int type;
    int ignore_eol = 0;
-   
+
 #if HTTP
    optr = obuf + http_offset + (html ? 1 : 0);
 #else
@@ -1515,7 +1533,7 @@ void format_buffer (int terminate, int html)
    *obuf = ' ';
 #endif /* CONSOLE */
 #endif /* HTTP */
-   
+
 /* Prepare the output opening and skip any introductory line feeds. */
 
    while (*iptr == '\n')
@@ -1532,6 +1550,12 @@ void format_buffer (int terminate, int html)
    {
       switch (*iptr)
       {
+         case '"':
+            if (html)
+               oputs ("&quot;");
+            else
+               oputc (*iptr);
+            break;
          case '\n':
             if (ignore_eol)
             {
@@ -1539,18 +1563,23 @@ void format_buffer (int terminate, int html)
                break;
             }
             if (!html)
-            {  if (compress < 2 || *(optr - 1) != '\n')
+            {
+               if (compress < 2 || *(optr - 1) != '\n')
                oputc ('\n');
             }
             if (*(iptr + 1) == '\n')
             {
                if (html)
-                  oputs (compress > 1 ? "<br>\n" : "<br>&nbsp;<br>\n");
-               else if (compress < 2) oputc ('\n');
+                  oputs (compress > 1 ? "<br>" : "<br>&nbsp;<br>");
+               else
+               {
+                  if (compress < 2)
+                     oputc ('\n');
+               }
                while (*(iptr + 1) == '\n') iptr++;
             }
             else if (html && *(iptr + 1))
-               oputs ("<br>\n");  
+               oputs ("<br>");
             break;
          case NBSP:
             if (html) oputs ("&nbsp;");
@@ -1566,31 +1595,30 @@ void format_buffer (int terminate, int html)
          case CENTRE_START:
             if (html)
             {
-               if (*iptr != CENTRE_START) 
-                 oputs ("<table align=center width=automatic><tr><td>\n");
-               else 
-                 oputs("<div align=center>\n");
+               if (*iptr != CENTRE_START)
+                 oputs ("<table align=center width=automatic><tr><td>");
+               else
+                 oputs("<div align=center>");
                if (*iptr == QUOTE_START) oputs ("<pre>");
             }
-            type = *iptr;
+            type = *iptr++;
             if (type == CENTRE_START)
                iptr = centre_text_lines (iptr, html);
             else
                iptr = centre_block (iptr, html);
             if (html)
-            {           
+            {
                if (type == QUOTE_START) oputs ("</pre>");
-               if (type != CENTRE_START) 
-                 oputs ("</td></tr></table>\n");
+               if (type != CENTRE_START)
+                 oputs ("</td></tr></table>");
                else
-                 oputs ("</div>\n");
-               oputs ("</center>\n");
+                 oputs ("</div>");
                if ((type == CENTRE_START || compress > 1) && *iptr)
                {
                   if (*(iptr + 1) == '\n') iptr++;
                   if (compress > 1 && *(iptr + 1) == '\n') iptr++;
                }
-            }  
+            }
             break;
          case IGNORE_EOL:
             ignore_eol = 1; /* Ignore the next EOL char */
@@ -1611,16 +1639,16 @@ void format_buffer (int terminate, int html)
       if (frag)
       {
          char c = *iptr;
-         oputs (terminate == 0 ? 
-            "<span id=\"prompt\">" : "<span class=\"query\">");
+         oputs (terminate == 0 ?
+            "<span class='query' id='prompt'>" : "<span> ");
          oputc (c);
-         oputs ("</span>");
+         oputs (" </span>");
          if (!compress) oputs ("<br>&nbsp;<br>");
       }
       else
       {
          if (!compress && bptr > text_buf) oputs("<br>&nbsp;<br>");
-         oputs ("<span id=\"prompt\"></span>");
+         oputs ("<span class='query' id='prompt'></span>");
       };
       if (quitting)                          tf = 'f';   /* Finish! */
 #ifdef ADVCONTEXT
@@ -1647,7 +1675,7 @@ void format_buffer (int terminate, int html)
       char *eptr = lptr - 1;
       if (*(optr - 1) == NBSP && !html_ok)
         *(optr - 1) = ' ';
-      else if (eptr >= text_buf && *eptr != ' ' && *eptr != NBSP) 
+      else if (eptr >= text_buf && *eptr != ' ' && *eptr != NBSP)
          oputc (' ');
    }
    else if (!quitting)
@@ -1713,7 +1741,7 @@ void outtext (char t)
    int i;
    int mx = mode != CONSOLE ? 80 : Maxlen;
    int mg = mode != CONSOLE ? 0 : Margin;
-   
+
    while (1)
    {
       jptr = iptr;
@@ -1786,7 +1814,7 @@ void outbuf (int terminate)
 #if HTTP
    if (first)         /* Send HTTP header is only just starting */
    {
-      if (mode == HTTP) 
+      if (mode == HTTP)
       {
          end_pause = 0;
          html_ok = 1; /* Browser mode, so need HTML! */
@@ -1813,7 +1841,7 @@ void outbuf (int terminate)
          *lptr = '\0';
       }
    }
-   
+
    if (log_file || mode == CONSOLE)
       format_buffer (terminate, 0);    /* Non-HTML format for the log */
    if (log_file)
@@ -1821,7 +1849,7 @@ void outbuf (int terminate)
       outtext ('L');
 #ifndef NO_READLINE
       if (log_file && mode != CONSOLE)
-         fprintf(log_file, prompt_line);
+         fputs(prompt_line, log_file);
 #endif /* NO_READLINE */
    }
    if (mode == CONSOLE)
@@ -1842,7 +1870,10 @@ void outbuf (int terminate)
 #endif /* HTTP */
 #endif /* CONSOLE || CGI*/
    }
-
+/* Add words uttered by the guide to the list of scene words. */
+#if STYLE >= 11
+   word_update();
+#endif
 /* Now zap the text buffer */
 
    lptr = text_buf;
@@ -1871,12 +1902,17 @@ void nested_say (int addr, int key, int qualifier)
 {
    int refno;
    int type;
-   
+
    if (key &= 14)
       key = 8;
    type = get_char (addr++);
    refno = get_char (addr++) << 8;
    refno |= (get_char (addr) & 255);
+   if (refno < 0 || refno > LTEXT)
+   {
+      printf ("GLitch! Nested variable refno out of range!\n");
+      return;
+   }
    if (type == 0)
       key = VOC_FLAG;
    else if (type == 1)
@@ -1991,7 +2027,7 @@ void say (int key, int what, int qualifier)
 
    given_qualifier = qualifier;
    if (var_qual_flag &&
-      ((qualifier != ARG1 && qualifier != ARG2 && qualifier != ARG3) || 
+      ((qualifier != ARG1 && qualifier != ARG2 && qualifier != ARG3) ||
          value_flag))
             qualifier = value [qualifier];
 
@@ -2022,7 +2058,7 @@ void say (int key, int what, int qualifier)
       else
 #else /* STYLE > 1 */
 #  if defined(TERSE) && defined(FULL) && defined(BEENHERE)
-      if (bitest (STATUS, TERSE) || 
+      if (bitest (STATUS, TERSE) ||
          (!bitest (STATUS, FULL) && bitest (what, BEENHERE)))
             ta = brief_desc [what];
       else
@@ -2031,7 +2067,7 @@ void say (int key, int what, int qualifier)
          ta = long_desc [what];
    }
 #endif /* LLOC > FLOC */
-#if LOBJ > FOBJ
+#if LOBJ >= FOBJ
    else if (what >= FOBJ)
    {
 #if defined(DETAIL) && STYLE == 10
@@ -2054,8 +2090,8 @@ void say (int key, int what, int qualifier)
       else
          ta = long_desc [what];
    }
-#endif /* LOBJ > FOBJ */
-   if ((tc = get_char (ta)) == '\0') goto shutup;
+#endif /* LOBJ >= FOBJ */
+   if (ta == 0 || (tc = get_char (ta)) == '\0') goto shutup;
 
 #define RANDOM_TEXT      1
 #define INCREMENTAL_TEXT 2
@@ -2098,7 +2134,7 @@ void say (int key, int what, int qualifier)
          textqual = value [what];
       else if (text_info [twat] == TIED_TEXT)
          textqual = value [value [what]];
-#if STYLE == 1      
+#if STYLE == 1
       else if (qualifier == ARG2 && value [ARG2] < BADWORD)
 #else
       else if (qualifier == ARG2 && value [ARG2] >= 0)
@@ -2108,7 +2144,7 @@ void say (int key, int what, int qualifier)
 
    if (!qual_flag)
       qualifier = (what <= LLOC) ? value [what] : what;
-   
+
    while (tc != '\0')
    {
 #ifdef NEST_TEXT
@@ -2312,13 +2348,18 @@ void save_changes (void)
 
    if (value [ARG1] <= BADWORD || value [ARG2] <= BADWORD ||
 #ifdef ADVCONTEXT
-       value [ADVCONTEXT] > 1 ||  
+       value [ADVCONTEXT] > 1 ||
 #if !CGI
        mode == HAVECMD ||
 #endif
 #endif
+#ifdef REDO
        value [ARG1] == UNDO || value [ARG1] == REDO)
           return;
+#else
+       value [ARG1] == UNDO)
+          return;
+#endif
    if (dptr > edptr)
       dptr = edptr;
    if (diffs == NULL)
@@ -2337,7 +2378,7 @@ void save_changes (void)
    }
    else
    {
-      for (cnt = 0, optr = image, iptr = IMAGE; cnt < IMAGE_SIZE; 
+      for (cnt = 0, optr = image, iptr = IMAGE; cnt < IMAGE_SIZE;
          cnt++, optr++, iptr++)
       {
          if (*optr != *iptr &&
@@ -2384,7 +2425,7 @@ void close_files (void)
 {
    if (com_file)
       fclose (com_file);
-      
+
    if (log_file)
    {
       int cnt;
@@ -2496,13 +2537,13 @@ void getinput (char *inbuf, int insize)
       while (1)
       {
 #ifndef NO_READLINE
-         if (mode != CONSOLE) 
+         if (mode != CONSOLE)
          {
-            printf (prompt_line);
+            printf ("%s", prompt_line);
             *prompt_line = '\0';
          }
 #endif /* NO_READLINE */
-         if (fgets (mybuf, insize, com_file) == NULL || 
+         if (fgets (mybuf, insize, com_file) == NULL ||
              strncmp (mybuf, "INTERACT", 8) == 0)
          {
             fclose (com_file);
@@ -2521,7 +2562,7 @@ void getinput (char *inbuf, int insize)
             else
             {
                char prmpt;
-               while (lptr > text_buf && 
+               while (lptr > text_buf &&
                   (*(lptr - 1) == ' ' || *(lptr - 1) == NBSP))
                      lptr--;
                if (*(lptr - 1) == '\n')
@@ -2533,16 +2574,11 @@ void getinput (char *inbuf, int insize)
                else
                   prmpt = *(--lptr);
 
-/*
- * The div id of "chunk" is an abomination forced by IE6, in which
- * getElelementsByName notoriously returns list of elements with the
- * specified id instead of the specified name!
- */
-               lptr += sprintf (lptr, 
+               lptr += sprintf (lptr,
                   "%cspan class=\"query\"%c%c %s%c/span%c",
                      TAG_START, TAG_END, prmpt, mybuf + 7, TAG_START, TAG_END);
                lptr += sprintf (lptr,
-                  "%c/div%c%c%cdiv id=\"chunk\" name=\"chunk\"%c",
+                  "%c/div%c%c%cdiv name=\"chunk\"%c",
                      TAG_START, TAG_END, compress ? ' ' : '\n', TAG_START, TAG_END);
             }
             break;
@@ -2630,7 +2666,7 @@ void advcpy (char *word_buff, int word_addr)
 void fake (int which_arg, int refno)
 {
    int word;
-   
+
    if (textadr[refno])
    {
       advcpy (which_arg == 1 ? arg1_word : arg2_word, textadr [refno]);
@@ -2640,7 +2676,7 @@ void fake (int which_arg, int refno)
    {
       if (voc_refno [word] == refno)
       {
-         advcpy (which_arg == 1 ? arg1_word : arg2_word, 
+         advcpy (which_arg == 1 ? arg1_word : arg2_word,
             voc_word [word]);
          return;
       }
@@ -2673,7 +2709,7 @@ void default_to (int key, int place, int type)
          j = 0;
          for (i = 0; i < except_count; i++)
             if (index == except [i])
-            { 
+            {
                except [i] = except [except_count - 1];
                except_count--;
                j = 1;
@@ -2695,7 +2731,7 @@ void default_to (int key, int place, int type)
 #endif
             (type < 0 || bitest (index, type)))
       {
-         if (fits >= 0) 
+         if (fits >= 0)
          {
 #if STYLE > 1
             value [ARG2] = AMBIGWORD;
@@ -2724,7 +2760,8 @@ void default_to (int key, int place, int type)
       value [STATUS] = 2;
 
 #ifdef IT
-      value [IT] = fits;
+      if (!value_all)       /* I.e. not in a DOALL loop! */
+         value [IT] = fits;
 #endif
 
 #ifdef ALL
@@ -2767,7 +2804,7 @@ void report_typo (int ovoc, int olen)
    *(orig + olen) = '\0';
    say (QUAL_FLAG, TYPO, ORIG);
    *(orig + olen) = save_char;
-   if ((unsigned int)olen >= strlen (orig)) 
+   if ((unsigned int)olen >= strlen (orig))
       value [TYPO]++;
    else
       say (QUAL_FLAG, TYPO, ORIG);
@@ -2776,6 +2813,16 @@ void report_typo (int ovoc, int olen)
    PRINTF("\n\n");
 }
 #endif /* TYPO */
+/*===========================================================*/
+int allowed (int which_arg, int refno)
+{
+  if (which_arg == 1) return (refno > LOBJ);
+#ifdef SEEN
+  return (bitest (refno, SEEN));
+#else
+  return (location [refno] == INHAND || location [refno] == value [HERE]);
+#endif
+}
 /*===========================================================*/
 void find_word (int *type, int *refno, int *tadr, int which_arg, int gripe)
 #else /* STYLE < 11 */
@@ -2797,9 +2844,9 @@ void find_word (int *type, int *refno, int *tadr, int which_arg)
    char *wp;
    int ra;
    char myword [WORDSIZE];
-  
+
    *type = -1;
-   strncpy (myword, 
+   strncpy (myword,
       which_arg == 0 ? orphan_word : tp [tindex], WORDSIZE);
    if (amatch < 0)
    {
@@ -2898,19 +2945,17 @@ void find_word (int *type, int *refno, int *tadr, int which_arg)
          if (old_refno != BADWORD && *refno != old_refno)
 #if STYLE >= 11
          {
-#define REF(X) (which_arg == 1 ? X > LOBJ : (X <= LOBJ && \
-                   (location [X] == INHAND || location [X] == value [HERE])))
-            int oref = REF (old_refno);
-            int nref = REF (*refno);
-            
+            int oref = allowed (which_arg, old_refno);
+            int nref = allowed (which_arg, *refno);
+
             if ((nref && oref) || (!nref && !oref))
                { *refno = AMBIGWORD; goto done; }
             if (!nref && oref)
-            { 
-               *refno = old_refno; 
+            {
+               *refno = old_refno;
                *tadr = old_tadr;
                *type = old_type;
-               bottom++; 
+               bottom++;
                continue;
             }
             if (nref && !oref)
@@ -2981,12 +3026,13 @@ void find_word (int *type, int *refno, int *tadr, int which_arg)
          while (*wp == get_char (va))
             { wp++; va++; }
          if (*wp == '\0' && get_char (va + 1) == 0 &&
-               voc_type [bottom] != NOISE)
+               voc_type [bottom] != NOISE &&
+                 allowed (which_arg, voc_refno [bottom]))
          {
-            if (old_refno >= 0 && 
+            if (old_refno >= 0 &&
                voc_refno [old_refno] != voc_refno [bottom])
                   {old_refno = AMBIGTYPO; break;}
-            old_refno = bottom; 
+            old_refno = bottom;
             ovoc = voc_addr [bottom];
             olen = va - ovoc;
             continue;
@@ -2999,18 +3045,19 @@ void find_word (int *type, int *refno, int *tadr, int which_arg)
             wp += 2;
             while (*wp && *wp == get_char (va))
                {wp++; va++;}
-            if (*wp == '\0' && get_char (va) == '\0' && 
-               voc_type [bottom] != NOISE)
+            if (*wp == '\0' && get_char (va) == '\0' &&
+               voc_type [bottom] != NOISE &&
+                 allowed (which_arg, voc_refno [bottom]))
             {
-               if (old_refno >= 0 && 
+               if (old_refno >= 0 &&
                   voc_refno [old_refno] != voc_refno [bottom])
                      {old_refno = AMBIGTYPO; break;}
-               old_refno = bottom; 
+               old_refno = bottom;
                ovoc = voc_addr [bottom];
                olen = va - ovoc;
                continue;
             }
-           wp = bp; 
+           wp = bp;
            va = ba;
          }
          if (*(wp + 1) == get_char (va + 1))
@@ -3019,13 +3066,14 @@ void find_word (int *type, int *refno, int *tadr, int which_arg)
             va++;
             while (*wp && *wp == get_char (va))
                {wp++; va++;}
-            if (*wp == '\0' && get_char (va) == '\0' && 
-               voc_type [bottom] != NOISE)
+            if (*wp == '\0' && get_char (va) == '\0' &&
+               voc_type [bottom] != NOISE &&
+                 allowed (which_arg, voc_refno [bottom]))
             {
-               if (old_refno >= 0 && 
+               if (old_refno >= 0 &&
                   voc_refno [old_refno] != voc_refno [bottom])
                      {old_refno = AMBIGTYPO; break;}
-               old_refno = bottom; 
+               old_refno = bottom;
                ovoc = voc_addr [bottom];
                olen = va - ovoc;
                continue;
@@ -3038,13 +3086,14 @@ void find_word (int *type, int *refno, int *tadr, int which_arg)
             va++;
             while (*wp && *wp == get_char (va))
                {wp++; va++;}
-            if (*wp == '\0' && get_char (va) == '\0' && 
-               voc_type [bottom] != NOISE)
+            if (*wp == '\0' && get_char (va) == '\0' &&
+               voc_type [bottom] != NOISE &&
+                 allowed (which_arg, voc_refno [bottom]))
             {
-               if (old_refno >= 0 && 
+               if (old_refno >= 0 &&
                   voc_refno [old_refno] != voc_refno [bottom])
                      {old_refno = AMBIGTYPO; break;}
-               old_refno = bottom; 
+               old_refno = bottom;
                ovoc = voc_addr [bottom];
                olen = va - ovoc;
                continue;
@@ -3057,13 +3106,14 @@ void find_word (int *type, int *refno, int *tadr, int which_arg)
             wp++;
             while (*wp && *wp == get_char (va))
                {wp++; va++;}
-            if (*wp == '\0' && get_char (va) == '\0' && 
-               voc_type [bottom] != NOISE)
+            if (*wp == '\0' && get_char (va) == '\0' &&
+               voc_type [bottom] != NOISE &&
+                 allowed (which_arg, voc_refno [bottom]))
             {
-               if (old_refno >= 0 && 
+               if (old_refno >= 0 &&
                   voc_refno [old_refno] != voc_refno [bottom])
                      {old_refno = AMBIGTYPO; break;}
-               old_refno = bottom; 
+               old_refno = bottom;
                ovoc = voc_addr [bottom];
                olen = va - ovoc;
                continue;
@@ -3088,18 +3138,20 @@ void find_word (int *type, int *refno, int *tadr, int which_arg)
 #endif /* STYLE >= 11 */
 done:
 #if STYLE >= 11
-      if (which_arg > 1 && (*refno == BADWORD || *refno == AMBIGTYPO) && 
-         btfind (word_buf, tp [tindex]))
-            value [ARG2] = SCENEWORD;
+/* Scene matching only done if full matching allowed. */
+      if (which_arg > 1 && amatch > 0 &&
+        (*refno == BADWORD || *refno == AMBIGTYPO) &&
+          btfind (word_buf, tp [tindex]))
+            *refno = SCENEWORD;
 #endif /* STYLE >= 11 */
 
    if (which_arg == 1)
       wp = arg1_word;
    else if (which_arg == 2)
-      wp = arg2_word; 
+      wp = arg2_word;
    else
       wp = arg3_word;
-   
+
    if (*refno <= BADWORD)
    {
       strncpy (wp, tp [tindex], WORDSIZE);
@@ -3119,7 +3171,7 @@ done:
 #endif /* DWARVEN */
    }
 
-#if defined(FDIR) && defined(LDIR) 
+#if defined(FDIR) && defined(LDIR)
    if ((*refno > FDIR && *refno < LDIR) && separator [tindex + 1] == ' ')
       separator [tindex + 1] = ';';
 #endif
@@ -3130,11 +3182,11 @@ void parse (void)
 {
    char *cptr, *lptr;
    char sep;
-   
+
    for (cptr = comline; *cptr; cptr++)
       *cptr = tolower (*cptr);
    cptr = lptr = comline;
-   while (*cptr == ' ' || *cptr == ',' || *cptr == ';' || 
+   while (*cptr == ' ' || *cptr == ',' || *cptr == ';' ||
          (*cptr == '.' && *(cptr + 1) != '.' && *(cptr + 1) != '/' &&
                           *(cptr + 1) != '\\'))
       cptr++;
@@ -3146,13 +3198,13 @@ void parse (void)
          *lptr++ = *cptr++;
          continue;
       }
-      
-      while (*cptr && *cptr != ' ' && *cptr != ',' && *cptr != ';' && 
+
+      while (*cptr && *cptr != ' ' && *cptr != ',' && *cptr != ';' &&
              *cptr != '.' && *cptr != '\n')
          *lptr++ = *cptr++;
       sep = ' ';
-      while (*cptr == ' ' || *cptr == ',' || *cptr == ';' || 
-            *cptr == '\n' || 
+      while (*cptr == ' ' || *cptr == ',' || *cptr == ';' ||
+            *cptr == '\n' ||
             (*cptr == '.' && *(cptr + 1) != '.' && *(cptr + 1) != '/' &&
                              *(cptr + 1) != '\\'))
       {
@@ -3179,24 +3231,21 @@ void parse (void)
       if (*cptr == '\n')
          break;
       tp [tindex] = cptr;
-      while (*cptr && *cptr != ' ' && *cptr != ',' && 
+      while (*cptr && *cptr != ' ' && *cptr != ',' &&
          *cptr != ';' && *cptr != '\n')
             cptr++;
       separator [tindex + 1] = *cptr;
       *cptr++ = '\0';
 
-/* Convert ANDs into comma separators *unless* approximate matching is
- * suppressed, in which case we just discard the AND -- the latter
- * is an Adv770 specific fudge to allow a sensible response to
- * REST AND CONTEMPLATE in the "little joke" stage of the game.
+/* Convert ANDs/THENs into comma/semicolon separators.
  */
       if (strcmp (tp [tindex], AND) == 0)
-         separator [tindex] = value [STATUS] < 90 ? ',' : ' ';
+         separator [tindex] = ',';
       else if (strcmp (tp [tindex], THEN) == 0)
          separator [tindex] = ';';
       else
       {
-/* 
+/*
  * Ignore the noise words. This used to be done in input(), hence
  * the repeated calls to find_word. Unfortunately, the logic of
  * object iteration got wobbly as the result and this is the simplest
@@ -3218,7 +3267,7 @@ void parse (void)
    value [ARG2] = -1;
    value [STATUS] = 0;
 
-   return;      
+   return;
 }
 /*===========================================================*/
 void input (int textref)
@@ -3238,13 +3287,14 @@ void input (int textref)
       exit (1);
    }
 #endif /* STYLE */
-   if (value [STATUS] < 90 || value [STATUS] >= LTEXT)
-      amatch = 1;
-   else if (value [STATUS] == 99)
-      amatch = 0;
-   else
-      amatch = -1;
-      
+   amatch = 1;       /* Full vocabulary matching */
+#if STYLE > 1
+   if (value[STATUS] == NO_MATCH)
+      amatch = -1;      /* No scene or abbreviation matching */
+   else if (value [STATUS] == NO_AMATCH)
+      amatch = 0;       /* No typo or scene matching */
+#endif /* STYLE */
+
 #if STYLE >= 11
 #if defined (ALL) && defined (EXCEPT)
    if (value_all == 0)
@@ -3253,7 +3303,7 @@ void input (int textref)
    *orig = '\0';
 #endif /* STYLE */
    *bitword (ARG1) = -1;        /* Just in case! */
-   *bitword (ARG2) = -1; 
+   *bitword (ARG2) = -1;
 
 #ifdef ALL
    if (value_all)
@@ -3291,7 +3341,7 @@ void input (int textref)
    }
    bitmod ('c', (STATUS), (PLSCLARIFY));
 #endif /* PLSCLARIFY */
-      
+
    continuation = (tindex != 0 && tp [tindex] && separator [tindex] == ',');
    if (separator [tindex] == ';')
    {
@@ -3307,7 +3357,7 @@ restart:
 
 #ifdef UNDO
    if (value [UNDO_STAT] >= 0)
-      save_changes ();
+         save_changes ();
    else if (diffs && dptr > diffs)
       edptr = dptr = diffs;
 #endif /* UNDO */
@@ -3324,7 +3374,7 @@ restart:
 #endif /* AGAIN */
 #ifdef LOC_STATS
          fprintf (stderr, "(Locates: %d (+%d), faults %d (+%d))\n",
-            locate_demands, locate_demands - old_demands, 
+            locate_demands, locate_demands - old_demands,
             locate_faults, locate_faults - old_faults);
          old_demands = locate_demands;
          old_faults = locate_faults;
@@ -3336,7 +3386,7 @@ restart:
             say (0, textref, 0);
          if (! lptr) lptr = text_buf;
          getinput (comline, 160);
-         if (loop) return;         
+         if (loop) return;
          strncpy (raw_comline, comline, 160);
 #ifdef ADVCONTEXT
          if (value [ADVCONTEXT] && (*comline == '\n' || *comline == '\0'))
@@ -3357,7 +3407,7 @@ restart:
 get_arg1:
    if (tp[tindex] == NULL)
       goto restart;
-   
+
 #if STYLE >= 11
    *orig1 = '\0';
    *orig = '\0';
@@ -3432,8 +3482,8 @@ got_command:
 #endif
    if (value [STATUS] == 1 && orphan)
    {
-      if ((orphan > LOBJ && value [ARG1] < LOBJ) ||
-          (orphan < LOBJ && value [ARG1] > LOBJ))
+      if ((orphan > LOBJ && value [ARG1] <= LOBJ) ||
+          (orphan <= LOBJ && value [ARG1] > LOBJ))
       {
          value [STATUS] = 2;
          value [ARG2] = orphan;
@@ -3496,11 +3546,11 @@ got_command:
          tp [tindex] = NULL;    /* Forget rest of command */
 #if STYLE < 11
    else if (value [STATUS] == 2 &&
-      value [ARG2] <= LVERB && value [ARG2] >= FVERB && 
+      value [ARG2] <= LVERB && value [ARG2] >= FVERB &&
       (value[ARG1] > LVERB || value[ARG1] < FVERB))
 #else /* STYLE >= 11 */
-   else if (value [STATUS] == 2 && value [ARG2] != SCENEWORD && 
-      value [ARG2] <= LVERB && value [ARG2] >= FVERB && 
+   else if (value [STATUS] == 2 && value [ARG2] != SCENEWORD &&
+      value [ARG2] <= LVERB && value [ARG2] >= FVERB &&
       (value[ARG1] > LVERB || value[ARG1] < FVERB))
 #endif /* STYLE */
    {
@@ -3530,7 +3580,7 @@ got_command:
          if (refno == EXCEPT)
          {
             tindex++;
-            while (refno >= 0 && 
+            while (refno >= 0 &&
                (separator [tindex] == ' ' || separator [tindex] == ','))
             {
                if (strcmp (tp [tindex], AND) != 0)
@@ -3557,13 +3607,13 @@ got_command:
          }
       }
 #endif /* ALL and EXCEPT */
-      if (tp [tindex] && strcmp (tp [tindex], AND) == 0 && 
+      if (tp [tindex] && strcmp (tp [tindex], AND) == 0 &&
          separator [tindex] == ' ')
             separator [++tindex] = ',';
       else if (separator[tindex] != ';')
       {
 #if STYLE >= 11
-         if (value [STATUS] > 1 && 
+         if (value [STATUS] > 1 &&
             (separator [tindex] == ' ' || separator [tindex] == ','))
                value [STATUS] = BADSYNTAX;
          if (tp [tindex])
@@ -3577,7 +3627,7 @@ got_command:
       value [STATUS] = BADSYNTAX;
    }
 #endif /* AGAIN */
-   if (value [STATUS] == BADSYNTAX || value [ARG1] > STATUS || 
+   if (value [STATUS] == BADSYNTAX || value [ARG1] > STATUS ||
        value [ARG2] > STATUS)       /* Bad command! Ignore rest of line */
           tp [tindex + 1] = NULL;
 #else /* STYLE < 11 */
@@ -3655,7 +3705,7 @@ void make_name (char *file_name, char *save_name)
 #endif /* MSDOS */
       cptr++;
    }
-   
+
 #ifdef MSDOS
    *(save_name + 8) = '\0';
 #else /* !MSDOS */
@@ -3674,7 +3724,7 @@ int check_version (FILE *infile)
    int minvalt = 0;
    char *gptr = GAME_ID;
    char tchr = fgetc (infile);
-   
+
    while (1)
    {
       if (*gptr == '\0' && tchr == '\n') return (0);
@@ -3706,11 +3756,12 @@ int check_version (FILE *infile)
 /*===========================================================*/
 int memstore (int key)
 {
-/* Key -1  check for existence of memory image
- * Key 0   true memory save
- * Key 1   true memory restore
- * Key 2   temporary memory save
- * Key 3   temporary memory restore
+/* Key 0  check for existence of memory image
+ * Key 1   true memory save
+ * Key 2   true memory restore
+ * Key 3   true memory save zap
+ * Key 4   temporary memory save
+ * Key 5   temporary memory restore
  */
 #if CGI
    FILE *memory_file = NULL;
@@ -3719,11 +3770,11 @@ int memstore (int key)
    static char *image_temp = NULL;   /* Temp save over restore area */
    char *image_ptr;
 #if CGI
-   char *fname = (char *)(key < 2 ? ".M.adv" : ".T.adv");
+   char *fname = (char *)(key < 4 ? ".M.adv" : ".T.adv");
    int result = 1;
 #endif /* CGI */
 
-   if (key < 0)
+   if (key == 0)
    {
 #if CGI
       if ((memory_file = fopen (fname, RMODE)) != NULL)
@@ -3732,20 +3783,20 @@ int memstore (int key)
          result = 0;
       }
       return (result);
-#else 
+#else
       return (image_base ? 0 : 1);
 #endif /* CGI */
    }
 
-   image_ptr = key < 2 ? image_base : image_temp;
-   if (key == 0 || key == 2)
+   image_ptr = key < 4 ? image_base : image_temp;
+   if (key == 1 || key == 4)
    {
       if (image_ptr == NULL)
       {
          image_ptr = (char *) malloc (IMAGE_SIZE);
          if (image_ptr == NULL)
             return (1);
-         if (key == 0)
+         if (key == 1)
             image_base = image_ptr;
          else
             image_temp = image_ptr;
@@ -3762,6 +3813,21 @@ int memstore (int key)
       return (0);
 #endif /* CGI */
    }
+   else if (key == 3)
+   {
+#if CGI
+      return (unlink(fname));
+#else
+      if (image_base)
+      {
+         free (image_base);
+         image_base = NULL;
+         return (0);
+      }
+      else
+         return (1);
+#endif
+   }
    else
    {
 #if CGI
@@ -3777,7 +3843,7 @@ int memstore (int key)
       if (image_ptr  == NULL)
          return (1);
 #endif /* CGI */
-      memcpy (IMAGE, image_ptr, IMAGE_SIZE);      
+      memcpy (IMAGE, image_ptr, IMAGE_SIZE);
       return (0);
    }
 }
@@ -3824,6 +3890,39 @@ int set_pdata (int offset, char val)
 /*===========================================================*/
 #endif /* STYLE > 11 */
 
+void input_store(int op, int *var)
+{
+   if (op == 'S')
+   {
+      *qtext = *var;
+      *qstat = value [STATUS];
+      *qarg1 = value [ARG1];
+      strncpy (qargw1, arg1_word, 20);
+      if (*qstat == 2)
+      {
+         *qarg2 = value [ARG2];
+         strncpy (qargw2, arg2_word, 20);
+      }
+      else
+      {
+         *qarg2 = -1;
+         *qargw2 = '\0';
+      }
+
+   }
+   else
+   {
+      *var = *qtext;
+      value [STATUS] = *qstat;
+      value [ARG1] = *qarg1;
+      value [ARG2] = *qarg2;
+      strncpy (arg1_word, qargw1, 20);
+      strncpy (arg2_word, qargw2, 20);
+   }
+}
+
+/*===========================================================*/
+
 int special (int key, int *var)
 {
    static char save_name [168];
@@ -3834,13 +3933,13 @@ int special (int key, int *var)
    int lval;
 #endif /* STYLE >= 10 */
    char tval [12];
+   static int saved_value = 0;
    static int tsiz = sizeof (time_t);
    int chksum;
    int chksav;
    char *cptr;
    int cnt;
    int lobj, lplace, lverb, lvar, ltext;
-   static int saved_value;
    static long game_time;
    void adv_hours ();
    void adv_news ();
@@ -3855,7 +3954,7 @@ try_again:
 #endif
          if (val != -1)
          {
-            if (*long_word && 
+            if (*long_word &&
                strncmp (long_word, arg2_word, 16) == 0)
                   strcpy (file_name, long_word);
             else
@@ -3937,7 +4036,7 @@ got_name:
 #endif /* ADVCONTEXT */
          if ((game_file = fopen (save_name, RMODE)) != NULL)
          {
-            if (key == 2 || key == 999 || key == 997) 
+            if (key == 2 || key == 999 || key == 997)
                goto restore_it;
             fclose (game_file);
             PRINTF ("\nThere's already a game dumped under that name.\n");
@@ -3954,7 +4053,7 @@ got_name:
             PRINTF ("\nAs you wish...\n");
 #endif /* ADVCONTEXT */
          }
-         else if ((mode == HAVECMD || mode == NEEDCMD) && 
+         else if ((mode == HAVECMD || mode == NEEDCMD) &&
            (key == 999 || key == 997))
          {
             if (key == 999)
@@ -3971,7 +4070,7 @@ got_name:
             return (0);
          }
       case 998:             /* Writing persistent state image */
-         if (key == 998) 
+         if (key == 998)
          {
             make_name (autoname, save_name);
 #ifdef ADVCONTEXT
@@ -4038,8 +4137,12 @@ got_name:
          if (value [UNDO_STAT] >= 0 && diffs && diffs < dptr)
          {
             strcpy (save_name + strlen(save_name) - 3, "adh");
-            if (((diffs && dptr > diffs + 4) || 
+            if (((diffs && dptr > diffs + 4) ||
+#ifdef ADVCONTEXT
                (ADVLIB && value [ADVCONTEXT] <= 1)) &&
+#else
+               ADVLIB) &&
+#endif
                   (game_file = fopen (save_name, WMODE)))
             {
                int len = dptr - diffs;
@@ -4047,6 +4150,7 @@ got_name:
                fwrite (diffs, 1, dptr - diffs, game_file);
                CHKSUM(diffs, len);
                fwrite (&chksum, 1, sizeof (chksum), game_file);
+//fprintf(stderr, "\n=== CHK SAVED %d, mode %d\n", chksum, mode);
                len = edptr - diffs;
                fwrite (&len, 1, sizeof (int), game_file);
                fclose (game_file);
@@ -4118,7 +4222,7 @@ restore_it:
          }
          chksav = 0;
 #if CONSOLE
-         *var = memstore (2);
+         *var = memstore (4);
          if (*var != 0)
             return (0);
 #endif /* CONSOLE */
@@ -4229,13 +4333,13 @@ restore_it:
             }
             if (tsiz == sizeof(game_time))
                memcpy (&game_time, tval, tsiz);
-            else 
+            else
                game_time = 1;
             memset (IMAGE, '\0', IMAGE_SIZE);
             memcpy (value, scratch, (lobj + 1) * sizeof (int));
-            memcpy (value + FLOC, scratch + (lobj + 1) * sizeof (int), 
+            memcpy (value + FLOC, scratch + (lobj + 1) * sizeof (int),
                (lplace - lobj) * sizeof (int));
-            memcpy (value + FVERB, scratch + (lplace + 1) * sizeof (int), 
+            memcpy (value + FVERB, scratch + (lplace + 1) * sizeof (int),
                (lverb - lplace) * sizeof (int));
             memcpy (value + FVAR, scratch + (lverb + 1) * sizeof (int),
                (lvar - lverb - 1) * sizeof (int));
@@ -4245,7 +4349,7 @@ restore_it:
             memcpy (objbits,   scratch + objbo, objbs);
             memcpy (placebits, scratch + plabo, plabs);
             memcpy (varbits,   scratch + varbo, vrbbs);
-            memcpy ((char *)varbits + VRBBIT_SIZE, scratch + varbo + vrbbs, 
+            memcpy ((char *)varbits + VRBBIT_SIZE, scratch + varbo + vrbbs,
                varbs - vrbbs);
 	 }
 #ifdef ADVCONTEXT
@@ -4287,7 +4391,7 @@ restore_it:
                      free(d);
                }
                fclose (game_file);
-	    }            
+	    }
          }
 #endif /* UNDO */
          *var = (key == 999) ? 999 : 0;
@@ -4311,7 +4415,7 @@ restore_it:
 
       case 5:          /* Adv550 legacy - get prime time flag */
          *var = 0;
-         return (0); 
+         return (0);
 
       case 6:          /* Save value of a variable (only one can be saved!) */
 #if STYLE < 10
@@ -4340,7 +4444,7 @@ restore_it:
 
       case 9:         /* Fudge a value into ARG1 */
 #if STYLE < 10
-         *var = 0;
+         *var = 0;    /* Style 1 "exit if demo games not allowed" */
 #else
          value [ARG1] = *var;
          fake (1, *var);
@@ -4363,7 +4467,7 @@ restore_it:
          return (0);
 
 /*    case 13: */      /* Spare */
-#if STYLE > 10
+#if STYLE > 11
       case 14:         /* Get persistent data item */
          *var = get_pdata (*var);
          return (0);
@@ -4372,7 +4476,7 @@ restore_it:
       case 16:         /* Clear persistent data item */
          set_pdata (*var, key == 15 ? 1 : 0);
          return (0);
-#endif /* STYLE > 10 */
+#endif /* STYLE > 11 */
 
       case 17:         /* Save locations of objects */
          if (!objlocs)
@@ -4383,13 +4487,13 @@ restore_it:
       case 18:         /* Get saved location of an object */
          *var = objlocs ? objlocs[*var] : 0;
          return (0);
-         
+
       case 19:    /* Fiddle justification */
          val = *var;
          justify = val < 2 ? val : 1 - justify;
          *var = justify;
          return (0);
-         
+
       case 20:    /* Set screen line length */
          val = atoi (arg2_word);
          *var = 0;
@@ -4448,29 +4552,11 @@ restore_it:
          return (0);
 
       case 23:    /* Preserve player input */
-         *qtext = *var;
-         *qstat = value [STATUS];
-         *qarg1 = value [ARG1];
-         strncpy (qargw1, arg1_word, 20);
-         if (*qstat == 2)
-         {
-            *qarg2 = value [ARG2];
-            strncpy (qargw2, arg2_word, 20);
-         }
-         else
-         {
-            *qarg2 = -1;
-            *qargw2 = '\0';
-         }
+         input_store ('S', var);
          return (0);
 
       case 24:    /* Restore player input */
-         *var = *qtext;
-         value [STATUS] = *qstat;
-         value [ARG1] = *qarg1;
-         value [ARG2] = *qarg2;
-         strncpy (arg1_word, qargw1, 20);
-         strncpy (arg2_word, qargw2, 20);
+         input_store ('R', var);
          return (0);
 
 /*    case 25: */   /* Spare */
@@ -4486,11 +4572,11 @@ restore_it:
             *say_buf = '\0';
          }
          return (0);
-         
+
       case 28:   /* Recover from failed restore */
-         *var = memstore (3);
+         *var = memstore (5);
          return (0);
-         
+
       case 29:    /* Swap ARG1 and ARG2 */
          *var = 0;
          if (value [STATUS] > 1)
@@ -4511,7 +4597,7 @@ restore_it:
          return (0);
 
 /*      case 30:   Spare */
-         
+
 /*      case 31:   Spare */
 
       case 32:   /* Is the object on the exception list? */
@@ -4535,7 +4621,7 @@ restore_it:
 
       case 33:  /* Check for existence of a memory save */
 #if STYLE >= 11
-         *var = memstore (-1);
+         *var = memstore (0);
 #else
          *var = 0;
 #endif
@@ -4549,7 +4635,7 @@ restore_it:
          *var = 0;
 #endif
          return (0);
-         
+
       default:
          PRINTF2 ("\n \nGLITCH! Bad special code: %d\n", key);
          return (1);
@@ -4565,7 +4651,7 @@ void create_db (char *dbfile)
    int val = 0;
    int bytes = 0;
    int sgn = 0;
-   
+
    if ((db_file = fopen (dbfile, WMODE)) == NULL)
       return;
    while (fgetc (text_file) != '{')
@@ -4580,7 +4666,7 @@ void create_db (char *dbfile)
       {
          if (sgn == 0)
             sgn = 1;
-         val = 10 * val + ch - '0';   
+         val = 10 * val + ch - '0';
       }
       else if (ch == '-' && sgn == 0)
          sgn = -1;
@@ -4731,7 +4817,7 @@ char *recase (char *token, int cflag)
 #if !ADVLIB
 void handle_token (int type, int attribute, char *aptr, int max, int *val)
 {
-   char buf [16]; 
+   char buf [16];
    int lval;
    if (conf [attribute] != NULL)
       return;
@@ -4739,7 +4825,7 @@ void handle_token (int type, int attribute, char *aptr, int max, int *val)
       (type == 'n' && atoi (aptr) >= 0))    /* A non-negative number */
    {
       lval= atoi (aptr);
-      if (max > 0 && lval > max) lval = max; 
+      if (max > 0 && lval > max) lval = max;
       if (max < 0 && lval < -max) lval = -max;
       if (val) *val = lval;
       sprintf (buf, "%d", lval);
@@ -4796,7 +4882,7 @@ void check_browser (char *name)
    char gpath[256];
    char *path;
    int sep = SEP;
-   
+
 #if WINDOWS
    sep = strchr(name, '/') ? '/' : SEP;
 #endif
@@ -4832,7 +4918,7 @@ void check_browser (char *name)
             break;
          sptr = ++eptr;
       }
-   }   
+   }
 }
 #endif /* HTTP */
 /*====================================================================*/
@@ -4847,7 +4933,7 @@ void read_conf ()
    FILE *cfile = NULL;
 #if HTTP
    int use_default = 0;
-   char *default_browser;   
+   char *default_browser;
 
 /* Different platfoms have different ways of invoking the default browser */
 
@@ -4903,7 +4989,7 @@ void read_conf ()
          cptr = recase (*(tkn + 1), 'U');
          if (conf [LOGFILE] != NULL)
             continue;
-         if (strcmp (cptr, "OFF") == 0 || 
+         if (strcmp (cptr, "OFF") == 0 ||
              strcmp (cptr, "NO") == 0 || strcmp (cptr, "NONE") == 0)
                store_conf (LOGFILE, "N");
          if (strcmp (cptr, "APPEND") == 0 || strcmp (cptr, "ON") == 0)
@@ -4911,7 +4997,7 @@ void read_conf ()
             store_conf (LOGFILE, UMODE);
             need_log = 1;
          }
-         else if (strcmp (cptr, "OVERWRITE") == 0 || 
+         else if (strcmp (cptr, "OVERWRITE") == 0 ||
                   strcmp (cptr, "WRITE") == 0)
          {
             store_conf (LOGFILE, "w");
@@ -4942,11 +5028,11 @@ void read_conf ()
                   {
                      if (stat_buf.st_mode & S_IFDIR)
                      {
-                        *rptr = SEP; 
+                        *rptr = SEP;
                         strncpy (log_path, aptr, sizeof (log_path));
                      }
                   }
-                  else 
+                  else
                      *conf[LOGFILE] = 'N';
                }
                else
@@ -5218,7 +5304,7 @@ void make_conf (void)
    FILE *cfile = fopen (CONFFILE, "wb");
    if (!cfile) return;
    while (**cfptr) fputs (*cfptr++, cfile);
-   fclose (cfile);  
+   fclose (cfile);
 }
 #endif /* !ADVLIB */
 /*===========================================================*/
@@ -5300,7 +5386,7 @@ int initialise (char *prog)
       else
          mainseed = atol (comline + strlen (GAME_ID) + 1);
    }
-#if CONSOLE
+#if CONSOLE || QT
    {
       struct stat stat_buf;
 #if WINDOWS
@@ -5319,11 +5405,13 @@ int initialise (char *prog)
 /*
  * If necessary, create the config file.
  */
+#if !QT
       if (stat (CONFFILE, &stat_buf) != 0)
       {
          void make_conf (void);
          make_conf ();
       }
+#endif /* QT */
 /*
  * Go to where A-code games live!
  */
@@ -5336,7 +5424,9 @@ int initialise (char *prog)
 #endif /* MSDOS */
          chdir (truname + 1);
       }
+#if !QT
       read_conf(); /* Process the config file, if any */
+#endif /* QT */
 
       if (!mode)                /* need the default therefrom */
       {
@@ -5372,7 +5462,7 @@ int initialise (char *prog)
 #endif /* STYLE */
 
    virgin = *text;
-#ifdef PLAIN
+#if PLAIN
    strcpy (title, (char *)text + 1);
 #else
    titlen = 0;
@@ -5386,7 +5476,7 @@ int initialise (char *prog)
       if ((title [titlen] = text [titlen] ^ text [titlen + 1]) == '\0')
          break;
 #endif /* PLAIN */
-   
+
    if (strcmp (title, GAME_ID) != 0)
    {
       printf ("Version stamp mismatch: '%s' != '%s'!\n", title, GAME_ID);
@@ -5406,7 +5496,7 @@ int initialise (char *prog)
    bitmod ('s', STATUS, BRIEF);
 #endif
 
-   for (index = 0; (unsigned int)index < 
+   for (index = 0; (unsigned int)index <
                              sizeof (voc_refno) / sizeof (voc_refno [0]);
          index++)
       if (voc_refno [index] < 0)
@@ -5414,7 +5504,7 @@ int initialise (char *prog)
          voc_refno [index] *= -1;
          bitmod ('s', voc_refno [index], VERB + 1);
       }
-            
+
    return (0);
 }
 /*===========================================================*/
@@ -5450,11 +5540,11 @@ int parse_args(int argc, char **argv)
       {
          if (! dump_name)
          {
-            if (*argv) dump_name = *argv; 
+            if (*argv) dump_name = *argv;
          }
          else if (! *log_path)
          {
-            strncpy (log_path, *argv, sizeof (log_path)); 
+            strncpy (log_path, *argv, sizeof (log_path));
             *(log_path + sizeof (log_path) - 1) = '\0';
          }
          continue;
@@ -5506,6 +5596,9 @@ int parse_args(int argc, char **argv)
       else if (*kwrd == 'v')
       {
          printf ("%s.\n", GAME_ID);
+#if defined(STYLE)
+         printf ("A-code style %d\n", STYLE);
+#endif
 #if defined(ACDC_VERSION)
          printf ("Acdc translator version %s.\n", ACDC_VERSION);
 #else
@@ -5521,7 +5614,7 @@ int parse_args(int argc, char **argv)
          puts ("Text database read into memory on startup.");
 #  endif /* DBSTATUS == 1 */
 #  if defined(SWAP)
-         printf ("Text database paged via %d internal 1KB swap buffers.\n", 
+         printf ("Text database paged via %d internal 1KB swap buffers.\n",
             SWAP);
 #  endif /* DBSTATUS == 2 */
 #  if DBSTATUS == 3
@@ -5545,7 +5638,7 @@ int parse_args(int argc, char **argv)
             else if (cps >=  30) cps =  30;
             else                 cps =  11;
          }
-         else 
+         else
             cps = 30;
       }
 #endif /* NO_SLOW */
@@ -5599,10 +5692,6 @@ int parse_args(int argc, char **argv)
 #ifdef USEDB
          puts ("    -d<dbsdir>          specify dbs directory");
 #endif /* USEDB */
-#ifdef UNDO
-         if (undo_def != -2)
-            puts ("    -u{0|1|none}        override default UNDO status");
-#endif /* UNDO */
 #if HTTP
 #ifndef MSDOS
          puts ("\nThese options force console mode display:");
@@ -5626,7 +5715,7 @@ int parse_args(int argc, char **argv)
          mode = 0;
          val = strtol (opt, &opt, 10);
          if (val == 0) val = 32767;
-         if (val >= 16 && val <= 32767)  
+         if (val >= 16 && val <= 32767)
          {
             Linlen = val;
             store_conf (WIDTH, opt);
@@ -5635,7 +5724,7 @@ int parse_args(int argc, char **argv)
          {
             val = strtol (opt, &opt, 10);
             if (val == 0) val = 32767;
-            if (val >= 16 && val <= 32767) 
+            if (val >= 16 && val <= 32767)
             {
                Screen = val;
                store_conf (HEIGHT, opt);
@@ -5650,7 +5739,7 @@ int parse_args(int argc, char **argv)
                }
             }
             Maxlen = Linlen - 2 * Margin;
-         }               
+         }
       }
 #ifdef USEDB
       else if (*kwrd == 'd')
@@ -5662,17 +5751,6 @@ int parse_args(int argc, char **argv)
       {
          if (*opt) dump_name = opt;
       }
-#ifdef UNDO
-      else if (*kwrd == 'u' && undo_def != -2)
-      {
-         if (oc == '0' || strcmp (opt, "off") == 0)
-            undo_def = -1;
-         else if (oc == '2' || oc == 'n' || strcmp (opt, "forbid") == 0)
-            undo_def = -2;
-         else if (oc == '1' || strcmp (opt, "on") == 0)
-            undo_def = 1;
-      }
-#endif /* UNDO */
 
 #ifdef CGI
       else if (*kwrd == 'x' || *kwrd == 'y' || *kwrd == 'n' || *kwrd == '-')
@@ -5692,7 +5770,7 @@ int parse_args(int argc, char **argv)
             break;
             *kwrd = 'y';
          }
-         else 
+         else
            *kwrd = 'x';
          if (*log_path == '\0')
          {
@@ -5736,7 +5814,7 @@ int parse_args(int argc, char **argv)
    }
    *text_buf = '\0';
    loop = 0;
-   
+
 /* NB: CGINAME has '.' or '_' prefix, but it might be wrong. */
 
    strncpy (truname, CGINAME, sizeof (truname) - 1);
@@ -5754,6 +5832,13 @@ int parse_args(int argc, char **argv)
    strncpy (extcom, cmd, sizeof (extcom));
    cptr = strchr (cmd + 1, '_');
    if (cptr && *(cptr + 1) == 'T') html_ok = 0;
+   if (cptr)
+   {
+      if (strcmp(cptr, "_TEXT_") == 0)
+         html_ok = 0;
+      else if (strcmp(cptr, "_HTML_") == 0)
+         html_ok = 1;
+   }
    if (strncmp (cmd, "_INFO_", 6) == 0)
    {
       PRINTF (GAME_NAME);
@@ -5779,7 +5864,7 @@ int parse_args(int argc, char **argv)
       value[STATUS] = -1;
       strcpy (comline, "restore ");
       cptr = cmd + 6;
-      if (!strncmp (cptr, "TEXT_", 5) || !strncmp(cptr, "_HTML_", 5))
+      if (!strncmp (cptr, "_TEXT_", 5) || !strncmp(cptr, "_HTML_", 5))
          cptr += 5;
       strcat (comline, cptr);
       dump_name = comline + 8;
@@ -5792,7 +5877,7 @@ int parse_args(int argc, char **argv)
    else
       goto run_it;
 #else /* !ADVLIB */
-   if (loop) 
+   if (loop)
      goto run_it;
    prog = *argv;
    strncpy(truname + 1, strrchr(*argv, SEP) + 1, sizeof(truname) - 1);
@@ -5829,7 +5914,7 @@ int parse_args(int argc, char **argv)
       cps = 1000000/cps;
 #  endif /* WINDOWS */
 #endif /* NO_SLOW */
-   if (mode != CONSOLE) 
+   if (mode != CONSOLE)
       Margin = 0;
    if (mainseed == 0)
       time ((time_t *) &mainseed);
@@ -5866,7 +5951,7 @@ int parse_args(int argc, char **argv)
       if (! dump_name || ! *dump_name)
          special(999, &value [0]);
    }
-   if ((value[0] == 999 && !com_name) || new_game < 0) 
+   if ((value[0] == 999 && !com_name) || new_game < 0)
    {
       FILE *adl;
       char name [64];
@@ -5888,7 +5973,7 @@ int parse_args(int argc, char **argv)
       goto run_it;
 #endif /* ADVLIB */
    }
-#ifdef JS
+#if JS
    if (new_game)
      value[STATUS] = -2;     /* Signal new game with no restore choice */
 #endif /* JS */
@@ -5914,7 +5999,7 @@ int parse_args(int argc, char **argv)
          strncpy (arg2_word, dump_name, WORDSIZE);
          *(arg2_word + WORDSIZE - 1) = '\0';
       }
-      else     
+      else
       {
          tindex = 0;
          tp [0] = NULL;
@@ -5926,18 +6011,6 @@ int parse_args(int argc, char **argv)
 run_it:
    while (1)
    {
-#ifdef UNDO
-      if (undo_def == -2)
-         bitmod ('s', UNDO_STAT, UNDO_NONE);
-      else if (undo_def == 1)
-         bitmod ('s', UNDO_STAT, UNDO_INFO);
-      else if (undo_def == -1)
-      {
-         bitmod ('s', UNDO_STAT, UNDO_INFO);
-         bitmod ('s', UNDO_STAT, UNDO_OFF);
-      }
-#endif /* UNDO */
-
 #if ADVLIB || CGI
       {
          if (mode == LOADGAME) mode = STARTGAME;
@@ -5958,7 +6031,7 @@ run_it:
 #endif /*ADVCONTEXT */
 #endif /* CGI */
       loop = 0;
-      if (quitting) 
+      if (quitting)
       {
          if (end_pause)
          {
@@ -6102,7 +6175,7 @@ void apport (int l1,int l2)
 void set (char t1, int v1, char t2, int v2, int *lv, short *lb)
 {
    int val, bts, cur = 0;
-  
+
    if      (t2 == 'e') { val = value [v2]; bts = 0; } /* OBJ, LOC, TEXT */
    else if (t2 == 'c') { val = v2; bts = 0; }                    /* CONSTANT */
    else if (t2 == 'v') { val = value [v2];                       /* VAR */
@@ -6115,7 +6188,7 @@ void set (char t1, int v1, char t2, int v2, int *lv, short *lb)
    else if (t1 == 'L') { lv [v1] = val;                             /* LOCAL */
                        cur = lb [VARSIZE * v1]; }
    else  /* t1 == 'E'*/ value [v1] = val;             /* OBJ, LOC, TEXT */
-   
+
    if      (t1 == 'V') {                                         /* VAR */
       if      (bts == -1 && cur != -1) varbits [VARSIZE * (v1 - FVERB)] = -1;
       else if (bts != -1 && cur == -1) varbits [VARSIZE * (v1 - FVERB)] = 0; }
@@ -6181,9 +6254,9 @@ void finita (void)
 #endif /* MEMORY */
 #ifdef LOC_STATS
    fprintf (stderr, "(Locates: %d (+%d), faults %d (+%d))\n",
-      locate_demands, locate_demands - old_demands, 
+      locate_demands, locate_demands - old_demands,
       locate_faults, locate_faults - old_faults);
-   fprintf (stderr, "(Locate ratio %d%%)\n", 
+   fprintf (stderr, "(Locate ratio %d%%)\n",
       (((1000 * locate_faults) / locate_demands) + 5) / 10);
 #endif /* LOC_STATS */
    quitting = 1;
@@ -6193,7 +6266,7 @@ void finita (void)
 short *bitword (int a1)
 {
    short *adr;
-   
+
    adr = NULL;
    if (a1 <= LOBJ)
        adr = &objbits [OBJSIZE * (a1 - FOBJ)];
@@ -6207,8 +6280,8 @@ short *bitword (int a1)
 void bitmod (char a1, int a2, int a3)
 {
    short *bitadr;
-   
-   if (a2 > LVAR) 
+
+   if (a2 > LVAR)
    {
       printf (
          "*** Run-time glitch! Setting flag on a flagless entity %d! ***\n", a2);
@@ -6291,7 +6364,7 @@ void lbitmod (int a0, char a1, int a2, int a3, int *a4, short *a5)
 int bitest (int a1, int a2)
 {
    short *bitadr;
-   
+
    if (a1 > LVAR)
       return (0);
 #if STYLE >= 10
@@ -6395,10 +6468,10 @@ void svar (int type, int *var)
       case 4:
       case 5:
          now = time (NULL);
-         tp = localtime (&now);         
+         tp = localtime (&now);
          *var = (type == 4 ? tp -> tm_hour : tp -> tm_min);
          break;
-        
+
       default:
          PRINTF2 ("GLITCH! Bad svar code: %d\n", type);
    }
@@ -6414,11 +6487,11 @@ int randsel(int cnt, ...)
 {
   va_list ap;
   int choice;
-  
+
   cnt = irand(cnt) + 1;
   va_start (ap, cnt);
   while (cnt--)
-    choice = va_arg(ap, int);  
+    choice = va_arg(ap, int);
   va_end (ap);
   return (choice);
 }
@@ -6473,7 +6546,7 @@ void show_data (void)
    int i;
    FILE *rrefs;
    char buf [80];
-   
+
    sprintf (buf, "%s.rrefs", truname);
    rrefs = fopen (buf + 1, RMODE);
    for (i = FOBJ; i < LTEXT; i++)
@@ -6488,7 +6561,7 @@ void show_data (void)
       {
          fprintf (stderr, "%4d", i);
       }
-      
+
       fprintf (stderr, "%5d", *(value + i));
       if (i >= FOBJ && i <= LOBJ)
       {
@@ -6501,7 +6574,7 @@ void show_data (void)
          show_bits (i, VARSIZE);
       fprintf (stderr, "\n");
    }
-   
+
    if (rrefs)
       fclose (rrefs);
 }
@@ -6524,6 +6597,9 @@ void inv_check (void)
    bitmod (diff ? 's' : 'c', UNDO_STAT, UNDO_INV);
 }
 /*===========================================================*/
+/* The checkdo() function extracts from player's command the bunary
+ * value of the number of mives to undo (or redo).
+ */
 int checkdo (void)
 {
    char *a;
@@ -6566,52 +6642,51 @@ void  undo (void)
       acnt = 0;
    else
    {
+
+/* In the CGI mode, two UNDO frames get created -- one before getting
+ * a command and one after.
+ */
+
       for (acnt = 0; acnt < cnt; acnt++)
       {
-         if (edptr <= diffs + 4)
-            break;
-         edptr -= 4;
-         while (edptr > diffs)
+#if CGI
+         int n;
+         for (n = 0; n < 2; n++)  /* Process 2 frames! */
          {
-            int adr;
+#endif
+            if (edptr <= diffs + 4)
+               break;
             edptr -= 4;
-            adr = 256 * (*edptr) + *(edptr + 1);
-            if (!adr) break;
-            *(IMAGE + adr) = *(edptr + 2);
+            while (edptr > diffs)
+            {
+               int adr;
+               edptr -= 4;
+               adr = 256 * (*edptr) + *(edptr + 1);
+               if (!adr) break;
+               *(IMAGE + adr) = *(edptr + 2);
+            }
+            edptr += 4;
+#if CGI
          }
-         edptr += 4;
-/* This is ugly, but I cannot work out why the CGI mode saves differences
- * twice per input, while the ADVLIB mode does not. So the workaround is to
- * undo in the CGI mode twice as many moves as requested. Can't do it just by
- * doubling the count returned by checkdo(), because the number of loops
- * actually performed is echoed at players as the number of commands undone.
- */
- 
-#ifdef CGI
          if (edptr <= diffs + 4)
-            break;
-         edptr -= 4;
-         while (edptr > diffs)
          {
-            int adr;
-            edptr -= 4;
-            adr = 256 * (*edptr) + *(edptr + 1);
-            if (!adr) break;
-            *(IMAGE + adr) = *(edptr + 2);
+            acnt++;
+            break;
          }
-         edptr += 4;
-#endif /* CGI */
+#endif
       }
       inv_check ();
    }
-
    value [UNDO_STAT] = acnt;
+
 #ifdef ALL
    if (value [ARG2] == ALL)
       cnt = acnt;
 #endif
    bitmod (cnt > acnt ? 's' : 'c', UNDO_STAT, UNDO_TRIM);
+#ifdef ADVCONTEXT
    value[ADVCONTEXT] = 0;
+#endif
    memcpy (image, IMAGE, IMAGE_SIZE);
    return;
 }
@@ -6620,7 +6695,7 @@ void redo (void)
 {
    int acnt;
    int cnt;
-   
+
    if ((cnt = checkdo ()) < 0)
       return;
 
@@ -6628,39 +6703,52 @@ void redo (void)
       acnt = 0;
    else
    {
+
+/* In the CGI mode, two UNDO frames get created -- one before getting
+ * a command and one after.
+ */
+
       for (acnt = 0; acnt < cnt; acnt++)
       {
-         if (edptr > dptr)
-            edptr = dptr;
-         while (1)
+#if CGI
+         int n;
+         for (n = 0; n < 2; n++)  /* Process 2 frames! */
          {
-            int adr = 256 * (*edptr) + *(edptr + 1);
-            edptr += 4;
-            if (!adr) break;
-            *(IMAGE + adr) = *(edptr - 1);
+#endif
+            if (edptr > dptr)
+               edptr = dptr;
+            while (1)
+            {
+               int adr = 256 * (*edptr) + *(edptr + 1);
+               edptr += 4;
+               if (!adr) break;
+               *(IMAGE + adr) = *(edptr - 1);
+            }
+            if (edptr == dptr) break;
+#if CGI
          }
-         if (edptr == dptr)
-         {
-            acnt++;
-            break;
-         }
+         if (edptr == dptr) break;
+#endif
       }
       inv_check ();
       memcpy (image, IMAGE, IMAGE_SIZE);
    }
+   if (cnt > acnt) acnt++;
    value [UNDO_STAT] = acnt;
 #ifdef ALL
    if (value [ARG2] == ALL)
       cnt = acnt;
 #endif
+#ifdef ADVCONTEXT
    value[ADVCONTEXT] = 0;
+#endif
    bitmod (cnt > acnt ? 's' : 'c', UNDO_STAT, UNDO_TRIM);
 }
 #endif /* UNDO */
 /*===========================================================*/
 void pcall (int procno)
 {
-   fprintf (stderr, 
+   fprintf (stderr,
       "\n*GLITCH* Called proc offest %d, but game's offset range is 0 to %d!\n",
          procno, LPROC);
 #if STYLE >= 11
@@ -6686,7 +6774,7 @@ void pcall (int procno)
 #endif
       fprintf (stderr, " in player command not handled by game's code.\n");
    }
-   fprintf (stderr, "\n");                  
+   fprintf (stderr, "\n");
 }
 /*===========================================================*/
 #if STYLE >= 11
@@ -6707,7 +6795,7 @@ int typed (char *string)
 /* This is the initial page to send to the browser, including all
  * the necessary JavaScrip code.
  */
-char *page[] = 
+char *page[] =
 {
    "<html><head><title>",
    "=G",
@@ -6736,7 +6824,7 @@ char *page[] =
    "function writeit(text)\n",
    "   { var newDiv = document.createElement('div'); newDiv.id = 'chunk';\n",
    "     newDiv.setAttribute('name', 'chunk'); newDiv.innerHTML = text;\n",
-   "     document.getElementById('console').insertBefore(newDiv, null); scrollit(); }\n",   
+   "     document.getElementById('console').insertBefore(newDiv, null); scrollit(); }\n",
    "   \n",
    "function zapit()\n",
    "   { document.getElementById('comform').innerHTML = ''; }\n",
@@ -6924,7 +7012,7 @@ char *page[] =
    "                   prompt.innerHTML : '?';\n",
    "      if (rType == 'c') tx = '<br>?';\n",
    "      el.className = 'query';\n",
-   "      el.innerHTML = tx + ' ' + com +\n", 
+   "      el.innerHTML = tx + ' ' + com +\n",
    "          (rType == 't' ? '<br>&nbsp<br>' : '');\n",
    "      prompt.parentNode.replaceChild(el, prompt);\n",
    "      el = null;\n",
@@ -7056,23 +7144,23 @@ void send_page(void)
    char tlimit [32];
 #
 #ifdef DEBUG
-   printf ("=== Entering %s\n", "send_page"); 
+   printf ("=== Entering %s\n", "send_page");
 #endif /* DEBUG */
-   sprintf (mlimit, "var moveLimit = %d;\n", atoi (conf [HISTORY]));      
+   sprintf (mlimit, "var moveLimit = %d;\n", atoi (conf [HISTORY]));
    sprintf (compact, "var compact = %d;\n", compress ? 1 : 0);
-   sprintf (tdlen, "%d", atoi (conf [PXWIDTH]) - 20);      
-   sprintf (inplen, "%d", 
+   sprintf (tdlen, "%d", atoi (conf [PXWIDTH]) - 20);
+   sprintf (inplen, "%d",
       atoi (conf [PXWIDTH]) / 10 - (*conf[BUTTON] == 'Y' ? 6 : 0));
 #ifdef DEBUG
-   sprintf (tlimit, "var timeLimit = %d;\n", 10000 * atoi (conf [PINGTIME])); 
+   sprintf (tlimit, "var timeLimit = %d;\n", 10000 * atoi (conf [PINGTIME]));
 #else
-   sprintf (tlimit, "var timeLimit = %d;\n", 1000 * atoi (conf [PINGTIME])); 
+   sprintf (tlimit, "var timeLimit = %d;\n", 1000 * atoi (conf [PINGTIME]));
 #endif /* DEBUG */
    optr = obuf + http_offset;
    while (1)
    {
       char *cptr = page[i++];
-      if (*cptr == '=') 
+      if (*cptr == '=')
       {
          int key = *(cptr + 1);
          if (key == '=')
@@ -7107,18 +7195,18 @@ void send_page(void)
    *optr = '\0';
    browser_write (obuf);
 #ifdef DEBUG
-   printf ("=== Exiting %s\n", "send_page"); 
+   printf ("=== Exiting %s\n", "send_page");
 #endif /* DEBUG */
 }
 /*====================================================================*/
-/* Generates the HTTP header for browser operation, based on the payload 
+/* Generates the HTTP header for browser operation, based on the payload
  * length given as a string in the <number> buffer.
  */
 char *make_header (char *buf)
 {
   char length[10];
   char *rptr;
-  sprintf (length, "%d", strlen (buf + http_offset)); 
+  sprintf (length, "%d", strlen (buf + http_offset));
   rptr =  buf + 7 - strlen (length);
   sprintf (rptr, "%s%s\n", HTTP_HEADER, length);
   *(buf + http_offset - 1) = '\n';

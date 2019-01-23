@@ -1,4 +1,4 @@
-/* adv01.c: A-code kernel - copyright Mike Arnautov 1990-2016, licensed
+/* adv01.c: A-code kernel - copyright Mike Arnautov 1990-2018, licensed
  * under GPL (version 3 or later) or the Modified BSD Licence, whichever
  * is asserted by the supplied LICENCE file.
  *
@@ -473,20 +473,14 @@ void invoke_browser (char *exe, int timeout)
 #endif /* ! DEBUG && ! DIRECT*/
 #endif /* WINDOWS */
 
-   rsp = browser_read (NULL, timeout); /* Accept initial call (page request?) */
-   if (rsp != 'R')
+   while (1)
    {
-      if (rsp == 'N')
-      {
-#if WINDOWS
-        usleep (1000);
-#else
-        sleep (1);         /* Give the browser (Firfox!) time to initialise */
-#endif /* WINDOWS */
+     rsp = browser_read (NULL, timeout); /* Accept initial call (page request?) */
+     if (rsp == 'S') break;
+     {
+       if (rsp == 'N')
         send_page();       /* Send the initial page */
-      }
-      while ((rsp = browser_read (NULL, timeout)) == 'N')
-        send_null();
+     }
    }
 #ifdef DEBUG
    printf ("=== Exiting %s\n", "invoke_browser"); 
