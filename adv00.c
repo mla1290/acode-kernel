@@ -1,9 +1,13 @@
-/* adv00.c: A-code kernel - copyright Mike Arnautov 1990-2018, licensed
+/* adv00.c: A-code kernel - copyright Mike Arnautov 1990-2019, licensed
  * under GPL (version 3 or later) or the Modified BSD Licence, whichever
- * is asserted by the supplied LICENCE file.
+ * is asserted by the supplied LICENCE file. GPL3 if no licence file.
  */
-#define KERNEL_VERSION "12.75, 07 Nov 2018"
+#define KERNEL_VERSION "12.76, 26 Feb 2019"
 /*
+ * 26 Feb 19   MLA        Ditched redundant CONTEXT-specific response codes.
+ * 25 Feb 19   MLA        Bug: history restore needs titghter structure check.
+ * 14 Jan 19   MLA        Bug: always convert NBSP to either &nbsp; or a blank.
+ * 29 Nov 18   MLA        Bug: never append binary junk to .adl files.
  * 07 Nov 18   MLA        Bug: orphans: don't ignore the highest refno object.
  * 02 Nov 18   MLA        Typo matching takes SEEN into account, if defined.
  * 31 Oct 18   MLA        bug: resolve UNDO/REDO/ADVCONTEXT ifdef dependebcies.
@@ -1530,7 +1534,7 @@ void format_buffer (int terminate, int html)
    optr = obuf;
 #else /* !CONSOLE */
    optr = obuf + 1;
-   *obuf = ' ';
+   *obuf = 't';
 #endif /* CONSOLE */
 #endif /* HTTP */
 
@@ -1583,12 +1587,7 @@ void format_buffer (int terminate, int html)
             break;
          case NBSP:
             if (html) oputs ("&nbsp;");
-            else
-#if ADVLIB
-              oputc (' ');
-#else
-              oputc (*iptr);
-#endif /* ADVLIB */
+            else oputc (' ');
             break;
          case QUOTE_START:
          case BLOCK_START:
@@ -1651,17 +1650,7 @@ void format_buffer (int terminate, int html)
          oputs ("<span class='query' id='prompt'></span>");
       };
       if (quitting)                          tf = 'f';   /* Finish! */
-#ifdef ADVCONTEXT
-      else if (frag)
-      {
-         if      (value [ADVCONTEXT] ==  10) tf = 'm';   /* Magic word */
-         else if (value [ADVCONTEXT] ==  15) tf = 's';   /* Save name */
-         else if (value [ADVCONTEXT] ==  44) tf = 'r';   /* Restore name */
-         else                                tf = 'q';   /* Query */
-      }
-#else
       else if (frag)                         tf = 'q';   /* Query */
-#endif /* ADVCONTEXT */
       else if (mode == HTTP && compress)     tf = 'c';   /* Compressed text */
       else                                   tf = 't';   /* Ordinary text */
 #if HTTP
@@ -1677,6 +1666,9 @@ void format_buffer (int terminate, int html)
         *(optr - 1) = ' ';
       else if (eptr >= text_buf && *eptr != ' ' && *eptr != NBSP)
          oputc (' ');
+#if !CONSOLE
+      *obuf = 'q';
+#endif /* CONSOLE */
    }
    else if (!quitting)
    {
@@ -2475,7 +2467,7 @@ void getinput (char *inbuf, int insize)
             cptr++;
          if (strncmp (cptr, RESTORING, len) == 0)
             cptr += len;
-         fwrite(cptr, 1, text_len - (cptr - text_buf), adl);
+         fputs(cptr, adl);
          fclose (adl);
       }
    }
@@ -3287,6 +3279,7 @@ void input (int textref)
       exit (1);
    }
 #endif /* STYLE */
+
    amatch = 1;       /* Full vocabulary matching */
 #if STYLE > 1
    if (value[STATUS] == NO_MATCH)
@@ -3294,6 +3287,7 @@ void input (int textref)
    else if (value [STATUS] == NO_AMATCH)
       amatch = 0;       /* No typo or scene matching */
 #endif /* STYLE */
+
 
 #if STYLE >= 11
 #if defined (ALL) && defined (EXCEPT)
@@ -4367,7 +4361,7 @@ restore_it:
                unsigned char *d;
                if (diffs)
                   edptr = dptr = diffs + 4;
-               if (val2 == 0)   /* Not if structure changed! */
+               if (val1 == 0 && val2 == 0)   /* Not if structure changed! */
                   fread (&len, 1, sizeof (int), game_file);
                if (len > 0)
                {
@@ -5805,7 +5799,8 @@ int parse_args(int argc, char **argv)
    int new_game = 0;
 #if ADVLIB
    char *cptr;
-   if (obuf) *obuf = '\0';
+//   if (obuf) *obuf = '\0';
+   if (obuf) *obuf = 'n';
 #endif
    if (!text_buf)
    {

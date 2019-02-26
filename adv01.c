@@ -1,6 +1,6 @@
-/* adv01.c: A-code kernel - copyright Mike Arnautov 1990-2018, licensed
+/* adv01.c: A-code kernel - copyright Mike Arnautov 1990-2019, licensed
  * under GPL (version 3 or later) or the Modified BSD Licence, whichever
- * is asserted by the supplied LICENCE file.
+ * is asserted by the supplied LICENCE file. GPL3 if no licence file.
  *
  * 02 Dec 17   MLA             Got rid of shutterm().
  * 03 Mar 16   MLA             Removed non-ANSI C support.
