@@ -2,10 +2,10 @@
  * under GPL (version 3 or later) or the Modified BSD Licence, whichever
  * is asserted by the supplied LICENCE file. GPL3 if no licence file.
  */
-#define KERNEL_VERSION "12.76, 26 Feb 2019"
+#define KERNEL_VERSION "12.77, 26 Feb 2019"
 /*
  * 26 Feb 19   MLA        Ditched redundant CONTEXT-specific response codes.
- * 25 Feb 19   MLA        Bug: history restore needs titghter structure check.
+ * 26 Feb 19   MLA        Bug: history restore needs titghter structure check.
  * 14 Jan 19   MLA        Bug: always convert NBSP to either &nbsp; or a blank.
  * 29 Nov 18   MLA        Bug: never append binary junk to .adl files.
  * 07 Nov 18   MLA        Bug: orphans: don't ignore the highest refno object.
@@ -1675,6 +1675,10 @@ void format_buffer (int terminate, int html)
       if (!compress) oputc('\n');
       oputs ("? ");
    }
+#if CGI
+   else
+     *obuf = 'f';
+#endif /* CGI */
 }
 /*====================================================================*/
 void stretch_line (char *iptr, char t)
@@ -3922,7 +3926,7 @@ int special (int key, int *var)
    static char save_name [168];
    char file_name [168];
    FILE *game_file;
-   int val, val1, val2;
+   int val, val1, val2, val3;
 #if STYLE >= 10
    int lval;
 #endif /* STYLE >= 10 */
@@ -4205,6 +4209,14 @@ restore_it:
 #ifdef DEBUG
          printf ("LTEXT: image %3d, expected %3d\n", ltext, LTEXT);
 #endif /* DEBUG */
+/*
+ * For undo history, we don't mind about *more* texts, on the slightly
+ * dodgy assumption that they are either added at the end (in line with
+ * documentation on upward compatibility), or are in-line and no in-line
+ * texts have morphing features. Hence val3 which is like val1 but ignores
+ * increased number of texts.
+ */
+         val3 = val1;
          if (ltext > LTEXT) val1++;
          else if (ltext < LTEXT) val2++;
 
@@ -4361,7 +4373,7 @@ restore_it:
                unsigned char *d;
                if (diffs)
                   edptr = dptr = diffs + 4;
-               if (val1 == 0 && val2 == 0)   /* Not if structure changed! */
+               if (val3 == 0 && val2 == 0)   /* Not if structure changed! */
                   fread (&len, 1, sizeof (int), game_file);
                if (len > 0)
                {

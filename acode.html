@@ -1,9 +1,12 @@
-<html>
+<!doctype html>
 <html>
 <head>
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta charset="utf-8">
-<script type="text/javascript"><!--
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<script>
 %JAVASCRIPT%
 var moveLimit = 200;
 var compact = 0;
@@ -21,25 +24,25 @@ var gameInfo;
 var advTurn = Module.cwrap('advturn', 'string', ['string']);
 
 function scrollit()
-   { window.scrollTo(0, conbot.offsetTop); }
+  { window.scrollTo(0, conbot.offsetTop); }
 function writeit(text)
-   { var newDiv = document.createElement('div'); newDiv.id = 'chunk';
-     newDiv.setAttribute('name', 'chunk'); newDiv.innerHTML = text;
-     document.getElementById('advtext').insertBefore(newDiv, null); scrollit(); }
+  { var newDiv = document.createElement('div'); newDiv.id = 'chunk';
+    newDiv.setAttribute('name', 'chunk'); newDiv.innerHTML = text;
+    document.getElementById('advtext').insertBefore(newDiv, null); scrollit(); }
    
 function zapit()
-   { document.getElementById('comform').innerHTML = ''; }
+  { document.getElementById('comform').innerHTML = ''; }
 function shutit(text)
 {
-   zapit();
-   writeit(text + '<form><div align=center>' +
-      '<input style="color:red;font-size:110%" onclick="javascript:location.reload()"' +
-      'type="button" value="Play again" /><br>or<br>' +
-      '<input class="custom-button" onclick="javascript:self.close()" ' +
-      'type="button" value="Close this tab/window" /><br>' +
-      '<span class="red">This button will only work if your ' +
-      ' browser<br> is not being paranoid about security.</span></p>' +
-      '</div></form>');
+  zapit();
+  writeit(text + '<form><div align=center>' +
+     '<input style="color:red;font-size:110%" onclick="javascript:location.reload()"' +
+     'type="button" value="Play again" /><br>or<br>' +
+     '<input class="custom-button" onclick="javascript:self.close()" ' +
+     'type="button" value="Close this tab/window" /><br>' +
+     '<span class="red">This button will only work if your ' +
+     ' browser<br> is not being paranoid about security.</span></p>' +
+     '</div></form>');
 }
 function init()
 {
@@ -110,52 +113,50 @@ function init2(err)
 }
 function keyDown(ev)
 {
-   var e = ev;
-   var code = (e.charCode || e.keyCode);
-   if (code == 16)
-     return false;
-   if (code == 13)
-   {
-     doit('');
-     return false;
-   }
-   if (code == 38 || code == 187 || code == 107) 
-      code = 1;
-   else if (code == 40 || code == 189 || code == 109)
-      code = -1;
-   else
-      code = 0;
-   
-   if (code != 0)
-      hist(code);
-
-   return false;
+  var e = ev;
+  var code = (e.charCode || e.keyCode);
+  if (code == 16)
+    return false;
+  if (code == 13)
+  {
+    doit('');
+    return false;
+  }
+  if (code == 38 || code == 187 || code == 107) 
+    code = 1;
+  else if (code == 40 || code == 189 || code == 109)
+    code = -1;
+  else
+    code = 0;
+  if (code != 0)
+    hist(code);
+  return false;
 }
 function hist(step)
 {
-   var h = 2 * hpos;
-   hcom[h] = advcom.value;
-   hpos += step;
-   if (hpos < 0) hpos = 0;
-   if (hpos > hsiz) hpos = hsiz;
-   h = 2 * hpos;
-   if (! hcom[h + 1])
-      hcom[h + 1] = hcom[h];
-   advcom.value = hcom[h];
-   advcom.focus();
-   return;
+  var h = 2 * hpos;
+  hcom[h] = advcom.value;
+  hpos += step;
+  if (hpos < 0) hpos = 0;
+  if (hpos > hsiz) hpos = hsiz;
+  h = 2 * hpos;
+  if (! hcom[h + 1])
+    hcom[h + 1] = hcom[h];
+  advcom.value = hcom[h];
+  advcom.focus();
+  return;
 }
 function showit(text)
 {
-   var type = text.substr(0, 1);
-   if (type != 'k')
-   {
-      rType = type;
-      writeit(text.substr(1));
-      if (type == 'f')
-         shutit('');
-      else if (started)
-         advcom.focus();
+  var type = text.substr(0, 1);
+  if (type != 'k')
+  {
+    rType = type;
+    writeit(text.substr(1));
+    if (type == 'f')
+      shutit('');
+    else if (started)
+      advcom.focus();
       FS.syncfs(function(error) {
         if (error)
           alert("Error while syncing" +  error);
@@ -164,59 +165,59 @@ function showit(text)
 }
 function doit(cmd)
 {
-   var com = advcom.value;
-   var pars;
-   turn++;
-   hcom[0] = com;
-   var prompt = document.getElementById('prompt');
-   if (prompt)
-   {
-      var el = document.createElement('span');
-      var tx = (rType == 'q' || rType == 'm' ||
-                rType == 'r' || rType == 's') ?
-                   prompt.innerHTML : '?';
-      if (rType == 'c') tx = '<br>?';
-      el.className = 'query';
-      el.innerHTML = tx + ' ' + com +
-          (rType == 't' ? '<br>&nbsp<br>' : '');
-      prompt.parentNode.replaceChild(el, prompt);
-      el = null;
-   }
-   advcom.value = '';
-   if (com && ! com.match(/^_/))
-   {
-      var i;
-      for (i = 1; i < hcom.length; i += 2)
+  var com = advcom.value;
+  var pars;
+  turn++;
+  hcom[0] = com;
+  var prompt = document.getElementById('prompt');
+  if (prompt)
+  {
+    var el = document.createElement('span');
+    var tx = (rType == 'q' || rType == 'm' ||
+              rType == 'r' || rType == 's') ?
+                prompt.innerHTML : '?';
+    if (rType == 'c') tx = '<br>?';
+    el.className = 'query';
+    el.innerHTML = tx + ' ' + com +
+      (rType == 't' ? '<br>&nbsp<br>' : '');
+    prompt.parentNode.replaceChild(el, prompt);
+    el = null;
+  }
+  advcom.value = '';
+  if (com && ! com.match(/^_/))
+  {
+    var i;
+    for (i = 1; i < hcom.length; i += 2)
+    {
+      if (hcom[i])
       {
-         if (hcom[i])
-         {
-            hcom[i - 1] = hcom[i];
-            hcom[i] = '';
-         }
+         hcom[i - 1] = hcom[i];
+         hcom[i] = '';
       }
-      if (hcom[0] == hcom[2])
-         hcom[0] = '';
-      else
-      {
-         hcom.unshift('');
-         hcom.unshift('');
-         hsiz++;
-      }
-   }
-   hpos = 0;
-   if (cmd) com = cmd
-   else if (started == 0)
-     com = '_START_';
-   showit(advTurn(com));
-   started = 1;
-   var kids = document.getElementsByName('chunk');
-   if (kids.length > moveLimit)
-   {
-      kids[0].parentNode.removeChild(kids[0]);
-      hcom.pop();
-      hcom.pop();
-      hsiz--;
-   }
+    }
+    if (hcom[0] == hcom[2])
+      hcom[0] = '';
+    else
+    {
+      hcom.unshift('');
+      hcom.unshift('');
+      hsiz++;
+    }
+  }
+  hpos = 0;
+  if (cmd) com = cmd
+  else if (started == 0)
+    com = '_START_';
+  showit(advTurn(com));
+  started = 1;
+  var kids = document.getElementsByName('chunk');
+  if (kids.length > moveLimit)
+  {
+    kids[0].parentNode.removeChild(kids[0]);
+    hcom.pop();
+    hcom.pop();
+    hsiz--;
+  }
 }
 function startit(what)
 {
@@ -226,7 +227,7 @@ function startit(what)
   advcom.value = what;
   doit(what);
 }
---></script>
+</script>
 <style type="text/css">
 table.main{max-width:900px; width:98%}
 *.query{color:red}
@@ -255,7 +256,7 @@ locally on your machine &ndash; there is no network access. All data
 storage relies on your browser's sand-boxed data store.</p>
 </p><p align="center"><span id=youcan style="display:none">You can<br></span>
 <span id=resume style="display:none">
-<input id=resume value="Continue your game" class=query
+<input value="Continue your game" class=query
 onclick="javascript:startit('_RESUME_')" type="button"> or </span>
 <input id=playit value="Start a new game" class="query" 
 onclick="javascript:startit('_START_')" type="button">
